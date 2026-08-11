@@ -1,0 +1,698 @@
+
+use crate::ast::{
+    SqlStmt, CreateDatasetStmt, DropDatasetStmt, RelDef, RelSuccessor, SelectStmt, InsertIntoStmt,
+    UpdateStmt, YankStmt, UpdateRelStmt, DeleteFromStmt,  FromListItem, Predicate, Member,
+    MemberPart, ConstValue, PathSegments, PathSegment, FieldSegments, PredLogicOperator, ArithOperator,
+    CompOperator, UpdateType, SetValue, AlterAction, AlterDatasetStmt, IndexDef, IndexType,
+    DescribeDatasetStmt, append_jsonpath,
+};
+use crate::lexer;
+//use crate::lexer::{Lexer, Tok, Location, LexicalError};
+use crate::lexer::Tok;
+
+use lalrpop_util::ParseError;
+
+// Parser expects tokens of shape: (usize, Tok, usize)
+// Example of calling the generated parser:
+// let mut lexer = crate::lexer::Lexer::new(input);
+// let tokens = std::iter::from_fn(|| lexer.next());
+// parser::SqlStmtParser::new().parse(tokens)
+
+grammar;
+
+extern {
+    type Location = usize;
+    type Error = lexer::LexicalError;
+
+    enum Tok {
+        // Terminals coming from the lexer Tok enum
+        "CREATE" => lexer::Tok::Create,
+        "DROP" => lexer::Tok::Drop,
+        "DESCRIBE" => lexer::Tok::Describe,
+        "ALTER" => lexer::Tok::Alter,
+        "ADD" => lexer::Tok::Add,
+        "DATASET" => lexer::Tok::Dataset,
+        "RELATIONSHIP" => lexer::Tok::Relationship,
+        "INVERSE" => lexer::Tok::Inverse,
+        "PRIMARY" => lexer::Tok::Primary,
+        "KEY" => lexer::Tok::Key,
+        "UNIQUE" => lexer::Tok::Unique,
+        "INDEX" => lexer::Tok::Index,
+        "INSERT" => lexer::Tok::Insert,
+        "DELETE" => lexer::Tok::Delete,
+        "UPDATE" => lexer::Tok::Update,
+        "SET" => lexer::Tok::Set,
+        "INTO" => lexer::Tok::Into,
+        "VALUES" => lexer::Tok::Values,
+        "SELECT" => lexer::Tok::Select,
+        "FROM" => lexer::Tok::From,
+        "AS" => lexer::Tok::As,
+        "IS" => lexer::Tok::Is,
+        "NOT" => lexer::Tok::Not,
+        "NULL" => lexer::Tok::Null,
+        "WHERE" => lexer::Tok::Where,
+        "AND" => lexer::Tok::And,
+        "OR" => lexer::Tok::Or,
+        "IN" => lexer::Tok::In,
+        "LIKE" => lexer::Tok::Like,
+        "REGEXP" => lexer::Tok::Regexp,
+        "+" => lexer::Tok::Plus,
+        "-" => lexer::Tok::Minus,
+        "*" => lexer::Tok::Multiply,
+        "/" => lexer::Tok::Divide,
+        "=" => lexer::Tok::Eq,
+        "==" => lexer::Tok::EqEq,
+        "<>" => lexer::Tok::Ne,
+        ">" => lexer::Tok::Gt,
+        "<" => lexer::Tok::Lt,
+        ">=" => lexer::Tok::Ge,
+        "<=" => lexer::Tok::Le,
+        "." => lexer::Tok::Dot,
+        "," => lexer::Tok::Comma,
+        "$" => lexer::Tok::Dollar,
+        "@" => lexer::Tok::Arobas,
+        "?" => lexer::Tok::QuestionMark,
+        "(" => lexer::Tok::OpenBracket,
+        ")" => lexer::Tok::CloseBracket,
+        "[" => lexer::Tok::OpenSqBracket,
+        "]" => lexer::Tok::CloseSqBracket,
+        "ident" => lexer::Tok::Ident(<String>),
+        "bool" => lexer::Tok::Bool(<bool>),
+        "number" => lexer::Tok::Number(<String>),
+        "integer" => lexer::Tok::Integer(<String>),
+        "singlequotedstring" => lexer::Tok::SingleQuotedString(<String>),
+        "doublequotedstring" => lexer::Tok::DoubleQuotedString(<String>),
+    }
+}
+
+pub SqlStmtExpr: SqlStmt = {
+    <stmt:CreateDatasetExpr> => stmt,
+    <stmt:DropDatasetExpr> => stmt,
+    <stmt:DescribeDatasetExpr> => stmt,
+    <stmt:AlterDatasetExpr> => stmt,
+    <stmt:InsertIntoExpr> => stmt,
+    <stmt:DeleteFromExpr> => stmt,
+    <stmt:UpdateWhereExpr> => stmt,
+    <stmt:DeleteFromWhereExpr> => stmt,
+    <stmt:InsertRelExpr> => stmt,
+    <stmt:DeleteRelExpr> => stmt,
+    <stmt:SelectProjExpr> => stmt,
+    <stmt:SelectFromExpr> => stmt,
+    <stmt:SelectFromWhereExpr> => stmt,
+}
+
+// CREATE DATASET xxx;
+CreateDatasetExpr: SqlStmt = {
+    "CREATE" "DATASET" <ds_name:"ident"> => {
+        SqlStmt::CreateDataset(
+            CreateDatasetStmt {
+                name: ds_name,
+                actions: vec![],
+            }
+        )
+    },
+    // CREATE DATASET ds PRIMARY KEY (a, b), RELATIONSHIP rel(tgt), ...;
+    <stmt:CreateDatasetExpr> <actions:CommaSep<CreateActionExpr>> => {
+        let SqlStmt::CreateDataset(stmt) = stmt else { panic!("missing dataset expr") };
+        SqlStmt::CreateDataset(
+            CreateDatasetStmt {
+                actions: actions,
+                ..stmt
+            }
+        )
+    }
+}
+
+CreateActionExpr: AlterAction = {
+    "RELATIONSHIP" <rel:"ident"> "(" <tgtds:"ident"> ")" => {
+        AlterAction::AddRel(
+            RelDef {
+                update_type: UpdateType::DdlAdd,
+                name: rel,
+                tgt_dataset: tgtds,
+            }
+        )
+    },
+    "PRIMARY" "KEY" "(" <f:CommaSep<FieldSegsExpr>> ")" => {
+        AlterAction::AddIdx(
+            IndexDef {
+                name: "".to_string(),
+                idx_type: IndexType::Pkey,
+                update_type: UpdateType::DdlAdd,
+                fields: f,
+            }
+        )
+    },
+    "INDEX" <n:"ident"> "(" <fields:CommaSep<FieldSegsExpr>> ")" => {
+        AlterAction::AddIdx(
+            IndexDef {
+                name: n,
+                idx_type: IndexType::NonUnique,
+                update_type: UpdateType::DdlAdd,
+                fields: fields,
+            }
+        )
+    },
+    "UNIQUE" "INDEX" <n:"ident"> "(" <fields:CommaSep<FieldSegsExpr>> ")" => {
+        AlterAction::AddIdx(
+            IndexDef {
+                name: n,
+                idx_type: IndexType::Unique,
+                update_type: UpdateType::DdlAdd,
+                fields: fields,
+            }
+        )
+    }
+}
+
+
+// DROP DATASET ds;
+DropDatasetExpr: SqlStmt = {
+    "DROP" "DATASET" <ds_name:"ident"> => {
+        let stmt = SqlStmt::DropDataset(
+            DropDatasetStmt {
+                name: ds_name,
+            }
+        );
+        stmt
+    }
+}
+
+// DESCRIBE DATASET ds;
+DescribeDatasetExpr: SqlStmt = {
+    "DESCRIBE" "DATASET" <ds_name:"ident"> => {
+        let stmt = SqlStmt::DescribeDataset(
+            DescribeDatasetStmt {
+                name: ds_name,
+            }
+        );
+        stmt
+    }
+}
+
+// ALTER DATASET ds DROP RELATIONSHIP rel, ADD RELATIONSHIP rel(tgtds), ...
+AlterDatasetExpr: SqlStmt = {
+    "ALTER" "DATASET" <name:"ident"> <acts:CommaSep<AlterActionExpr>> => {
+        let stmt = SqlStmt::AlterDataset(
+            AlterDatasetStmt {
+                ds_name: name,
+                actions: acts,
+            }
+        );
+        stmt
+    }
+}
+
+AlterActionExpr: AlterAction = {
+    "ADD" "RELATIONSHIP" <rel:"ident"> "(" <tgtds:"ident"> ")" => {
+        let action = AlterAction::AddRel(
+            RelDef {
+                update_type: UpdateType::DdlAdd,
+                name: rel,
+                tgt_dataset: tgtds,
+            }
+        );
+        action
+    },
+    "DROP" "RELATIONSHIP" <rel:"ident"> => {
+        AlterAction::DropRel(rel)
+    },
+    "ADD" "PRIMARY" "KEY" "(" <fields:CommaSep<FieldSegsExpr>> ")" => {
+        AlterAction::AddIdx(
+            IndexDef {
+                name: "".to_string(),
+                idx_type: IndexType::Pkey,
+                update_type: UpdateType::DdlAdd,
+                fields: fields,
+            }
+        )
+    },
+    "DROP" "PRIMARY" "KEY" => {
+        AlterAction::DropIdx("".to_string())
+    },
+    "DROP" "INDEX" <n:"ident"> => {
+        AlterAction::DropIdx(n)
+    },
+    "ADD" "INDEX" <n:"ident"> "(" <fields:CommaSep<FieldSegsExpr>> ")" => {
+        AlterAction::AddIdx(
+            IndexDef {
+                name: n,
+                idx_type: IndexType::NonUnique,
+                update_type: UpdateType::DdlAdd,
+                fields: fields,
+            }
+        )
+    },
+    "ADD" "UNIQUE" "INDEX" <n:"ident"> "(" <fields:CommaSep<FieldSegsExpr>> ")" => {
+        AlterAction::AddIdx(
+            IndexDef {
+                name: n,
+                idx_type: IndexType::Unique,
+                update_type: UpdateType::DdlAdd,
+                fields: fields,
+            }
+        )
+    }
+}
+
+DeleteFromWhereExpr: SqlStmt = {
+    <stmt:DeleteFromExpr> "WHERE" <pred_list:PredicateListExpr> => {
+        let SqlStmt::DeleteFrom(del_stmt) = stmt else { panic!("missing from expr") };
+        let stmt = SqlStmt::DeleteFrom(
+            DeleteFromStmt {
+                predicate_list: pred_list,
+                ..del_stmt
+            }
+        );
+        stmt
+    }
+}
+
+DeleteFromExpr: SqlStmt = {
+   // DELETE FROM dataset WHERE ....
+   "DELETE" "FROM" <ds_name:"ident"> => {
+        let stmt = SqlStmt::DeleteFrom(
+            DeleteFromStmt {
+                ds_name: ds_name,
+                predicate_list: vec![],
+            }
+        );
+        stmt
+   },
+}
+
+UpdateWhereExpr: SqlStmt = {
+    // UPDATE dataset SET a = '..', b.c = '..'
+    "UPDATE" <ds:"ident"> "SET" <svals:CommaSep<SetValueExpr>> "WHERE" <preds:PredicateListExpr> => {
+        let stmt = SqlStmt::Update(
+            UpdateStmt {
+                ds_name: ds,
+                values: svals,
+                predicate_list: preds,
+            }
+        );
+        stmt
+    },
+    // UPDATE dataset DELETE a, b ...
+    "UPDATE" <ds:"ident"> "DELETE" <yk:CommaSep<FieldSegsExpr>> "WHERE" <preds:PredicateListExpr> => {
+        let stmt = SqlStmt::Yank(
+            YankStmt {
+                ds_name: ds,
+                fields: yk,
+                predicate_list: preds,
+            }
+        );
+        stmt
+    }
+}
+
+InsertIntoExpr: SqlStmt = {
+   // INSERT INTO dataset VALUES '{...}', '{...}'
+   "INSERT" "INTO" <ds_name:"ident"> "VALUES" <list_vals:QuotedListExpr> => {
+        let stmt = SqlStmt::InsertInto(
+            InsertIntoStmt {
+                ds_name: ds_name,
+                values: list_vals,
+            }
+        );
+        stmt
+    }
+}
+
+// -- Relationship insert --
+InsertRelExpr: SqlStmt = {
+   // INSERT INTO student(enrollment) VALUES "history", "art" WHERE ...
+   "INSERT" "INTO" <ds_name:"ident"> "." <rel_name:"ident">  "VALUES" <rs:RelSuccessorListExpr> "WHERE" <pred_list:PredicateListExpr> => {
+        let stmt = SqlStmt::UpdateRel(
+            UpdateRelStmt {
+                name: rel_name,
+                update_type: UpdateType::Insert,
+                values: rs,
+                from_list: vec![ FromListItem { ds_name: ds_name, alias: None } ],
+                predicate_list: pred_list,
+            }
+        );
+        stmt
+   }
+}   
+
+// -- Relationship delete --
+DeleteRelExpr: SqlStmt = {
+   // DELETE FROM student(enrollment) VALUES "history", "art" WHERE ...
+   "DELETE" "FROM" <ds_name:"ident"> "." <rel_name:"ident">  "VALUES" <rs:RelSuccessorListExpr> "WHERE" <pred_list:PredicateListExpr> => {
+        let stmt = SqlStmt::UpdateRel(
+            UpdateRelStmt {
+                name: rel_name,
+                update_type: UpdateType::Delete,
+                values: rs,
+                from_list: vec![ FromListItem { ds_name: ds_name, alias: None } ],
+                predicate_list: pred_list,
+            }
+        );
+        stmt
+   }
+}   
+
+SelectFromWhereExpr: SqlStmt = {
+    <stmt:SelectFromExpr> "WHERE" <pred_list:PredicateListExpr> => {
+        let SqlStmt::Select(sel_stmt) = stmt else { panic!("missing from expr") };
+        let stmt = SqlStmt::Select(
+            SelectStmt {
+                predicate_list: pred_list,
+                ..sel_stmt
+            }
+        );
+        stmt
+    }
+}
+
+FromListItemExpr: FromListItem = {
+    <dsname:"ident"> => FromListItem { ds_name: dsname, alias: None },
+    <dsname:"ident"> <alias:"ident"> => FromListItem { ds_name: dsname, alias: Some(alias)}
+}
+    
+SelectFromExpr: SqlStmt = {
+    <stmt:SelectProjExpr> "FROM" <from_list:CommaSep<FromListItemExpr>> => {
+        let SqlStmt::Select(sel_stmt) = stmt else { panic!("missing proj expr") };
+        let stmt = SqlStmt::Select(
+            SelectStmt {
+                from_list: from_list,
+                ..sel_stmt
+            }
+        );
+        stmt
+    },
+    <stmt:SelectProjExpr> "FROM" "DATASET" => {
+        let SqlStmt::Select(sel_stmt) = stmt else { panic!("missing proj expr") };
+        let stmt = SqlStmt::Select(
+            SelectStmt {
+                from_list: vec![ FromListItem { ds_name: "dataset".to_string(), alias: None } ],
+                ..sel_stmt
+            }
+        );
+        stmt
+    }
+}
+
+SelectProjExpr: SqlStmt = {
+   "SELECT" <const_proj_list:ProjListExpr> => {
+        let stmt = SqlStmt::Select(
+            SelectStmt {
+                proj_list: const_proj_list,
+                from_list: vec![],
+                predicate_list: vec![],
+            }
+        );
+        stmt
+    }
+}
+
+SetValueExpr: SetValue = {
+    <p:FieldSegsExpr> "=" <c:ConstValueExpr> => {
+        SetValue {
+            fieldsegs: p,
+            value: c,
+        }
+    },
+}
+
+PredicateListExpr: Vec<Predicate> = {
+    <predicate:PredicateExpr> => vec![predicate],
+    <predicate:PredicateExpr> <_predlogic:PredLogicExpr> <rest:PredicateListExpr> => {
+        let mut v = vec![predicate];
+        v.extend(rest);
+        v
+    },
+};
+
+PredicateExpr: Predicate = {
+    <lpred:MemberStarExpr> <comp:PredCompOperExpr> <rpred:MemberStarExpr> => Predicate {
+        left: lpred,
+        right: rpred,
+        comp_operator: comp,
+    },
+    <lpred:MemberStarExpr> "IS" "NULL" => Predicate {
+        left: lpred,
+        right: Member{ part: MemberPart::Value(ConstValue::IsNull()) },
+        comp_operator: CompOperator::Eq,
+    },
+    <lpred:MemberStarExpr> "IS" "NOT" "NULL" => Predicate {
+        left: lpred,
+        right: Member{ part: MemberPart::Value(ConstValue::IsNull()) },
+        comp_operator: CompOperator::Ne,
+    },
+    <lpred:MemberStarExpr> "IN" "(" <vals:CommaSep<ConstValueExpr>> ")" => {
+        Predicate {
+            left: lpred,
+            right: Member{ part: MemberPart::ValueList(vals) },
+            comp_operator: CompOperator::In,
+        }
+    },
+    <lpred:MemberStarExpr> "NOT" "IN" "(" <vals:CommaSep<ConstValueExpr>> ")" => {
+        Predicate {
+            left: lpred,
+            right: Member{ part: MemberPart::ValueList(vals) },
+            comp_operator: CompOperator::NotIn,
+        }
+    },
+    <lpred:MemberStarExpr> <c:StrCompOperExpr> <s:SingleQuotedStringExpr> => {
+        Predicate {
+            left: lpred,
+            right: Member{ part: MemberPart::Value(ConstValue::SingleQuotedString(s)) },
+            comp_operator: c,
+        }
+    },
+}
+
+StrCompOperExpr: CompOperator = {
+    "LIKE" => CompOperator::Like,
+    "NOT" "LIKE" => CompOperator::NotLike,
+    "REGEXP" => CompOperator::Regexp,
+    "NOT" "REGEXP" => CompOperator::NotRegexp,
+}
+
+JpathCompOperExpr: CompOperator = {
+    "==" => CompOperator::EqEq,
+    <CompOperExpr> => <>,
+}
+
+PredCompOperExpr: CompOperator = {
+    "=" => CompOperator::Eq,
+    <CompOperExpr> => <>,
+}
+
+CompOperExpr: CompOperator = {
+    "<>" => CompOperator::Ne,
+    ">" => CompOperator::Gt,
+    "<" => CompOperator::Lt,
+    ">=" => CompOperator::Ge,
+    "<=" => CompOperator::Le,
+}
+
+PredLogicExpr: PredLogicOperator = {
+    "AND" => PredLogicOperator::And,
+    // TBD - later "OR" => PredLogicOperator::Or,
+}
+
+ProjListExpr: Vec<Member> = {
+    <seglist:MemberStarExpr> => vec![seglist],
+    <head:ProjListExpr> "," <path:MemberStarExpr> => {
+        let mut v = head;
+        v.push(path);
+        v
+    },
+}
+
+MemberStarExpr: Member = {
+    StarPathSegsExpr => Member{ part: MemberPart::Path(<>) },
+    MemberExpr,
+}
+
+MemberEltExpr: Member = {
+    PathSegsMemberExpr => <>,
+    ConstValueExpr => Member{ part: MemberPart::Value(<>) },
+}
+
+MemberExpr: Member = {
+    <l:MemberExpr> <o:OperatorSymbExpr> <r:FactorExpr> => 
+        Member{
+            part: MemberPart::Tree(
+                Box::new(l), 
+                o, 
+                Box::new(r),
+            )
+        },
+    FactorExpr,
+}
+
+FactorExpr: Member = {
+    <l:FactorExpr> "*" <r:MemberEltExpr> =>
+        Member{
+            part: MemberPart::Tree(
+                Box::new(l), 
+                ArithOperator::Multiply, 
+                Box::new(r),
+            )
+        },
+    <l:FactorExpr> "/" <r:MemberEltExpr> =>
+        Member{
+            part: MemberPart::Tree(
+                Box::new(l), 
+                ArithOperator::Divide, 
+                Box::new(r),
+            )
+        },
+    TermExpr,
+}
+
+TermExpr: Member = {
+    MemberEltExpr,
+    "(" <MemberExpr> ")"
+}
+
+PathSegsMemberExpr: Member = {
+    PathSegsExpr => Member{ part: MemberPart::Path(<>) },
+}
+
+OperatorSymbExpr: ArithOperator = {
+    "+" => ArithOperator::Plus,
+    "-" => ArithOperator::Minus,
+}
+
+// Generic comma separated list
+CommaSep<T>: Vec<T> = {
+    <mut v:(<T> ",")*> <e:T> => {
+        v.push(e);
+        v
+    }
+}
+
+// Generic dot separated list
+DotSep<T>: Vec<T> = {
+    <mut v:(<T> ".")*> <e:T> => {
+        v.push(e);
+        v
+    }
+}
+
+FieldSegsExpr: FieldSegments = {
+    DotSep<"ident"> => {
+        FieldSegments{ segments: <> }
+    }
+}
+
+PathSegsExpr: PathSegments = {
+    <elt:PathElementExpr> => PathSegments { segments: vec![<>], jsonpath: vec![] },
+    <head:PathSegsExpr> "." <elt:PathElementExpr> => {
+        let mut v = head.segments;
+        v.push(elt);
+        PathSegments{ segments: v ,jsonpath: vec![] }
+    },
+}
+
+// All path expressions, including '*' and jsonpath
+StarPathSegsExpr: PathSegments = {
+    <JsonPathExpr> => {
+        append_jsonpath(PathSegments {segments: vec![], jsonpath: vec![]}, <>)
+    },
+    <s:PathSegsExpr> "." <e:JsonPathExpr> => append_jsonpath(s, e),
+}
+
+QuotedListExpr: Vec<String> = {
+    SingleQuotedStringExpr => vec![<>],
+    <head:QuotedListExpr> "," <elt:SingleQuotedStringExpr> => {
+        let mut v = head;
+        v.push(elt);
+        v
+    },
+}
+
+// We capture here only what follows a jsonpath only element like
+// '$', '[]'. Assume dual role '*' is jsonpath here.
+JsonPathExpr: Vec<String> = {
+    <JsonPathEltExpr> => vec![<>],
+    <h:JsonPathExpr> "." <e:JsonPathEltExpr> => {
+        let mut v = h;
+        v.push(e);
+        v
+    },
+    <h:JsonPathExpr> "." <e:"ident"> => {
+        let mut v = h;
+        v.push(e);
+        v
+    },
+}
+
+// Elements we know with certainty to be jsonpath elements
+JsonPathHeadExpr: String = {
+    // '$' isolated root element is same as 'SELECT *'.
+    // Preserve it here to distinguish from '$.*' that produces a flattened array of elements
+    "$" => "$".to_string(),
+    "*" => "*".to_string(),
+    <i:"ident"> "[" "*" "]" => format!("{}[*]", i),
+    <i:"ident"> "[" <n:"integer"> "]" => format!("{}[{}]", i, n),
+    <i:"ident"> "[" <n:"integer"> "," <m:"integer"> "]" => format!("{}[{},{}]", i, n, m),
+}
+
+JsonPathEltExpr: String = {
+    <JsonPathHeadExpr> => <>,
+    <h:JsonPathHeadExpr> "?" "(" "@" "." <i:"ident"> <o:JpathCompOperExpr> <c:JpathConstValueExpr> ")" => {
+        format!("{}?(@.{} {} {})", h, i, o.to_string(), c)
+    } 
+}
+
+PathElementExpr: PathSegment = {
+    <i:"ident"> => {
+        PathSegment {
+            name: i,
+            target_ds: "".to_string(),
+        }
+    },
+    <InverseRelExpr> => <>,
+}
+
+InverseRelExpr: PathSegment = {
+    "INVERSE" "(" <tgt:"ident"> "." <rel:"ident"> ")" => {
+        PathSegment {
+            name: rel,
+            target_ds: tgt,
+        }
+    }
+}
+
+SingleQuotedStringExpr: String = {
+    "singlequotedstring" => <>,
+}
+
+RelSuccessorListExpr: Vec<RelSuccessor> = {
+    <rs:CommaSep<RelSuccessorExpr>> => {
+        rs
+    }
+}
+
+RelSuccessorExpr: RelSuccessor = {
+    <c:ConstValueExpr> => {
+       let s = vec![c];
+       RelSuccessor { s: s } 
+    },
+    "(" <s:CommaSep<ConstValueExpr>> ")" => {
+       RelSuccessor { s: s } 
+    }
+}
+
+JpathConstValueExpr: String = {
+    "NULL" => "null".to_string(),
+    "bool" => <>.to_string(),
+    "number" => <>.to_string(),
+    "integer" => <>.to_string(),
+    "doublequotedstring" => format!("\"{}\"", <>),
+}
+
+ConstValueExpr: ConstValue = {
+    "NULL" => ConstValue::Null(),
+    "bool" => ConstValue::Bool(<>),
+    "number" => ConstValue::Number(<>),
+    "integer" => ConstValue::Number(<>),
+    "singlequotedstring" => ConstValue::SingleQuotedString(<>),
+}
+

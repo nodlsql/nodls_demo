@@ -1,0 +1,266 @@
+syntax = "proto3";
+package sqlinsts;  // this becomes a rust module
+
+// SQL plan
+message SqlPlanPb {
+  SqlStmtPb sqlstmt = 1;
+  repeated SqlInstPb insts = 2;
+  repeated SqlValuePb values = 3;
+  int32 max_value_idx = 4;
+}
+
+enum SqlStmtPb {
+  SELECT = 0;
+  CREATE_DATASET = 1;
+  ALTER_DATASET = 2;
+  DELETE_FROM = 3;
+  INSERT_INTO = 4;
+  UPDATE = 5;
+  YANK = 6;
+  UPDATE_REL = 7;
+}
+
+message DecimalValuePb {
+  uint32 scale = 1;
+  int64 number = 2;
+}
+
+message SqlValuePb {
+  // sql statement constant
+  bool is_constant = 1;
+
+  oneof data {
+    // Objid
+    uint32 oid_value = 2;
+    // Json bool
+    bool bool_value = 3;
+    // Json Number
+    int64 int64_value = 4;
+    DecimalValuePb decimal_value = 5;
+    // Json string
+    string string_value = 6;
+    // Explicit null value - '{a: null}', versus missing field that translates as data None.
+    bool null_value = 7;
+  }
+}
+
+enum EvalPhasePb {
+  PREDICATE = 0;
+  PROJECTION = 1;
+  // For schema dataset stripped view - remove id, empty fields
+  STRIPPED_PROJECTION = 2;
+}
+
+// Instruction
+message SqlInstPb {
+  oneof inst {
+    ISetOptionsPb options = 1;
+    IDatasetPb dataset = 2;
+    IRelPb rel = 3;
+    IRelUpdPb rel_update = 4;
+    IDatapathPb dpath = 5;
+    IComparePb comp = 6;
+    IProjPb proj = 7;
+    IIndexPb index = 8;
+    IInsertPb insert = 9;
+    IDeletePb delete = 10;
+    IUpdatePb update = 11;
+    IYankPb yank = 12;
+    IExprPb expr = 13;
+    IDdlPb ddl_update = 14;
+  }
+}
+
+enum DdlOpPb {
+  CREATE_DS = 0;
+  DROP_DS = 1;
+  DESCRIBE_DS = 2;
+  RENAME_DS = 3;
+  CREATE_REL = 4;
+  DROP_REL = 5;
+  CREATE_IDX = 6;
+  DROP_IDX = 7;
+}
+
+message IDdlPb {
+  DdlOpPb op = 1;
+  string ds_name = 2;
+  uint32 ds_id = 3;
+  string name = 4;
+  string tgt_ds_name = 5;       // for add rel
+  IndexTypePb idx_type = 6;     // for create index
+  repeated string seg_strs = 7; // for create index, composite key 'a.b, c'
+}
+
+enum OperPb {
+  ADD = 0;
+  SUB = 1;
+  MUL = 2;
+  DIV = 3;
+}
+
+message IExprPb {
+  OperPb op = 1;
+  int32 lval_idx = 2;
+  int32 rval_idx = 3;
+  int32 resval_idx = 4;
+}
+
+message ISetOptionsPb {
+  int32 limit_cnt = 1;
+  int32 limit_cnt_grp = 2;
+  int32 start_offset = 3;
+  int32 start_offset_grp = 4;
+}
+
+message IDatasetPb {
+  string name = 1;
+  int32 key_val_idx = 2;       // stores current obj retrieved
+  uint32 dataset_id = 3;
+}
+
+message IRelPb {
+  string name = 1;
+  uint32 rel_id = 2;
+  bool inverse = 3;
+  string ds_name = 4;                // Actual parent ds name, from last rel target
+  repeated string parent_path = 5;   // [dsname] or [top dsname, rel, ...] after optimize
+  string tgt_ds_name = 6;
+  uint32 tgt_ds_id = 7;
+  int32 key_val_idx = 8;       // get current source entity id retrieved
+  int32 tgt_key_val_idx = 9;   // set successor target entity ids here
+}
+
+enum RelOpPb {
+  INSERT = 0;
+  DELETE = 1;
+}
+
+message IRelUpdPb {
+  string name = 1;
+  string ds_name = 2;
+  RelOpPb upd_type = 3;
+  uint32 rel_id = 4;
+  string tgt_ds_name = 5;
+  uint32 tgt_ds_id = 6;
+  uint32 tgt_index_root_id = 7;
+  int32 key_val_idx = 8;                 // stores current obj to update the rel for
+  repeated CompositeRangePb ranges = 9;  // equi fetch successors from PK index
+}
+
+message IInsertPb {
+  string ds_name = 1;                // dataset name
+  uint32 ds_id = 2;                  // dataset id
+  int32 key_val_idx = 3;             // current item id inserted
+  repeated int32 val_idxs = 4;       // constant values to insert
+}
+
+message IDeletePb {
+  int32 key_val_idx = 1;   // current entity to delete
+}
+
+message IUpdatePb {
+  int32 key_val_idx = 1;       // current entity to update
+  repeated int32 val_idxs = 2; // constant values to update with
+  repeated string pathsegs = 3;  // path segs for each updated/deleted field
+}
+
+message IYankPb {
+  int32 key_val_idx = 1;       // current entity to update
+  repeated string pathsegs = 2;  // path segs for each updated/deleted field
+}
+
+enum IndexTypePb {
+  PKEY = 0;
+  UNIQUE = 1;
+  DEFAULT = 2;
+}
+
+// Not doing <> right now, usage w/o other bounds seems limited.
+message RangePb {
+  int32 lower_bound_val_idx = 1;
+  int32 lower_bound_nb_vals = 2;       // for 'xxx IN(a,b,c)'
+  CompOperatorPb lower_op = 3;         // equal, > or >=
+  int32 upper_bound_val_idx = 4;
+  CompOperatorPb upper_op = 5;         // < or <=
+}
+
+message CompositeRangePb {
+  repeated RangePb ranges = 1; 
+}
+
+message IndexSegPb {
+  repeated string seg_vec = 2;
+}
+
+enum IndexOpPb {
+  SCAN = 0;
+  DELETE_KEY = 1;
+  INSERT_KEY = 2;
+}
+
+// Index scan inst
+message IIndexPb {
+  IndexTypePb idx_type = 1;
+  IndexOpPb op = 2;
+  string ds_name = 3;
+  string name = 4;
+  repeated string seg_strs = 5;      // composite key 'a.b, c'
+  repeated IndexSegPb seg_vecs = 6;  // same, vector format
+  int32 key_val_idx = 7;             // stores current obj retrieved
+  uint32 root_id = 8;                // root node
+  CompositeRangePb range = 9;        // One range per composite key segment
+}
+
+message InvRelEltPb {
+  string target_ds = 1;          // ds_name for inv rel, or empty string for rels and path elts
+  int32 path_offset = 2;         // path seg offsets, for instance [inv rel, rel, inv rel] has offsets [0, 2]
+}
+
+message IDatapathPb {
+  EvalPhasePb phase = 1;
+  string alias = 2;
+  string ds_name = 3;                // Actual path parent ds name, from last rel target
+  repeated string parent_path = 4;   // [dsname] or [top dsname, rel, ...] after optimize
+  repeated string pathsegs = 5;      // Plain path segs, includes rel segs before optimize
+  repeated string jsonpath = 6;      // Optional json path, starts with '$.' after eventual rel or alias path
+  repeated InvRelEltPb invrels = 7;
+  string path_str = 8;               // Initial full path concat out of parser, updated by optimizer post rels
+  repeated RelDescPb rel_descs = 9;  // rel descs for 'select *' shallow rel display
+  int32 key_val_idx = 10;            // same id value for entity datapart and relpart
+  int32 val_idx = 11;
+}
+
+enum CompOperatorPb {
+  EQ = 0;
+  NE = 1;
+  GT = 2;
+  LT = 3;
+  GE = 4;
+  LE = 5;
+  IN = 6;
+  NOT_IN = 7;
+  LIKE = 8;
+  NOT_LIKE = 9;
+  REGEXP = 10;
+  NOT_REGEXP = 11;
+}
+
+message IComparePb {
+  CompOperatorPb comp = 1;
+  int32 left_val_idx = 2;
+  int32 right_val_idx = 3;
+  int32 right_val_cnt = 4;
+}
+
+message RelDescPb {
+  string name = 1;
+  uint32 id = 2;
+  repeated string pk_segs = 3;
+}
+message IProjPb {
+  string proj_name = 1;
+  repeated string path = 2;
+  int32 col_num = 3;
+  int32 val_idx = 4;
+}
