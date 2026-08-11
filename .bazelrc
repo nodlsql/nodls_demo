@@ -1,0 +1,4 @@
+common --enable_bzlmod
+
+build:demo --@rules_rust//rust/settings:extra_rustc_flags=--cfg=demo
+build:demoprt --@rules_rust//rust/settings:extra_rustc_flags=--cfg=demoprt
