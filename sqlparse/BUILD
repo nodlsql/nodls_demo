@@ -50,7 +50,6 @@ rust_doc(
 
 rust_library(
     name = "lib",
-    crate_name = "sqlparser",
     srcs = [
         "src/ast.rs",
         "src/lexer.rs",
@@ -59,6 +58,7 @@ rust_library(
         ":generate_parser",  # Ensure parser is generated before building the library
     ],
     aliases = aliases(),
+    crate_name = "sqlparser",
     deps = all_crate_deps(
         normal = True,
     ),

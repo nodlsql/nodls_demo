@@ -32,11 +32,11 @@ rust_library(
     crate_name = "indexkey",
     visibility = ["//visibility:public"],
     deps = [
+        "//demoexe:lib",
         "//indexcapn:lib",
-        "//sqlinsts:lib",
         "//jbparse:lib",
         "//sqlexet:lib",
-        "//demoexe:lib",
+        "//sqlinsts:lib",
     ] + all_crate_deps(
         normal = True,
     ),

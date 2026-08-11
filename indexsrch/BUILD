@@ -31,10 +31,10 @@ rust_library(
     crate_name = "indexsrch",
     visibility = ["//visibility:public"],
     deps = [
-        "//sqlinsts:lib",
+        "//dupindexkey:lib",
         "//indexcapn:lib",
         "//indexkey:lib",
-        "//dupindexkey:lib",
+        "//sqlinsts:lib",
     ] + all_crate_deps(
         normal = True,
     ),
@@ -46,25 +46,26 @@ rust_test(
     crate_root = "tests/tests.rs",
     deps = [
         ":lib",
-        "//sqlinsts:lib",
-        "//indexkey:lib",
         "//dupindexkey:lib",
         "//indexcapn:lib",
+        "//indexkey:lib",
+        "//sqlinsts:lib",
     ] + all_crate_deps(
         normal = True,
         proc_macro = True,
     ),
 )
+
 rust_test(
     name = "decimals",
     srcs = ["tests/decimals.rs"],
     crate_root = "tests/decimals.rs",
     deps = [
         ":lib",
-        "//sqlinsts:lib",
-        "//indexkey:lib",
         "//dupindexkey:lib",
         "//indexcapn:lib",
+        "//indexkey:lib",
+        "//sqlinsts:lib",
     ] + all_crate_deps(
         normal = True,
         proc_macro = True,

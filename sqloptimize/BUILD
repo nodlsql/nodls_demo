@@ -13,7 +13,7 @@
 # limitations under the License.
 
 load("@crates//:defs.bzl", "aliases", "all_crate_deps")
-load("@rules_rust//rust:defs.bzl", "rust_library", "rust_test", "rust_doc")
+load("@rules_rust//rust:defs.bzl", "rust_doc", "rust_library", "rust_test")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -25,10 +25,10 @@ rust_doc(
 rust_library(
     name = "lib",
     srcs = [
-        "src/lib.rs",
         "src/analyze.rs",
-        "src/utils.rs",
         "src/iutils.rs",
+        "src/lib.rs",
+        "src/utils.rs",
     ],
     aliases = aliases(),
     crate_name = "sqloptimize",

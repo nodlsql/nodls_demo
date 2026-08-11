@@ -30,10 +30,10 @@ rust_binary(
         "src/main.rs",
     ],
     aliases = aliases(),
-    crate_name = "sqlcmd",
     compile_data = [
         "src/help.txt",
     ],
+    crate_name = "sqlcmd",
     deps = [
         "//demoexe:lib",
         "//sqlcontrols:lib",

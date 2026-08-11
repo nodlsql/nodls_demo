@@ -23,7 +23,7 @@ genrule(
     outs = ["src/lib.rs"],
     cmd = """
        /usr/local/bin/protoc --proto_path=sqlinsts/src --prost_out=sqlinsts/src $(location src/sqlinsts.proto)
-       mv sqlinsts/src/sqlinsts.rs $(RULEDIR)/src/lib.rs
+       /usr/bin/mv sqlinsts/src/sqlinsts.rs $(RULEDIR)/src/lib.rs
     """,
 )
 

@@ -13,7 +13,7 @@
 # limitations under the License.
 
 load("@crates//:defs.bzl", "aliases", "all_crate_deps")
-load("@rules_rust//rust:defs.bzl", "rust_library", "rust_test", "rust_doc")
+load("@rules_rust//rust:defs.bzl", "rust_doc", "rust_library", "rust_test")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -49,8 +49,8 @@ rust_test(
     deps = [
         ":lib",
         "//sqlinsts:lib",
-        "//sqlparse:lib",
         "//sqloptimize:lib",
+        "//sqlparse:lib",
     ] + all_crate_deps(
         normal = True,
         proc_macro = True,

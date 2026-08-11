@@ -1,0 +1,10 @@
+.idea
+.ijwb
+MODULE.bazel.lock
+bazel-bhello
+bazel-bin
+bazel-out
+bazel-testlogs
+bazel-nodls_demo
+nodls_demo.code-workspace
+target

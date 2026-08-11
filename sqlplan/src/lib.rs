@@ -175,7 +175,7 @@ pub fn translate(
     }
 
     #[cfg(demoprt)]
-    println!("SQL Plan:\n{}", utils::pretty_print_plan(&sqlplan));
+    println!("SQL Plan:\n{}", sqloptimize::utils::pretty_print_plan(&sqlplan));
 
     Ok(sqlplan)
 }
