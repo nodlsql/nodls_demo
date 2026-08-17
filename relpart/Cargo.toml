@@ -23,7 +23,7 @@ publish = false
 path = "src/lib.rs"
 
 [dependencies]
-capnp = "0.25"
+capnp = "0.27"
 entitycapn = { version = "0.1.0", path = "../entitycapn" }
 sqlexet = { version = "0.1.0", path = "../sqlexet" }
 thiserror = "2.0.18"

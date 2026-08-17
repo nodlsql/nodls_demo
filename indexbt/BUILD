@@ -13,7 +13,7 @@
 # limitations under the License.
 
 load("@crates//:defs.bzl", "aliases", "all_crate_deps")
-load("@rules_rust//rust:defs.bzl", "rust_library", "rust_test", "rust_doc")
+load("@rules_rust//rust:defs.bzl", "rust_doc", "rust_library", "rust_test")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -32,9 +32,9 @@ rust_library(
     visibility = ["//visibility:public"],
     deps = [
         "//demoexe:lib",
+        "//dupindexkey:lib",
         "//indexcapn:lib",
         "//indexkey:lib",
-        "//dupindexkey:lib",
         "//indexsrch:lib",
         "//jbparse:lib",
         "//sqlexet:lib",
@@ -50,9 +50,9 @@ rust_test(
     crate_root = "tests/tests.rs",
     deps = [
         ":lib",
+        "//dupindexkey:lib",
         "//indexcapn:lib",
         "//indexkey:lib",
-        "//dupindexkey:lib",
         "//indexsrch:lib",
         "//jbparse:lib",
         "//sqlinsts:lib",
@@ -68,9 +68,9 @@ rust_test(
     crate_root = "tests/decimals.rs",
     deps = [
         ":lib",
+        "//dupindexkey:lib",
         "//indexcapn:lib",
         "//indexkey:lib",
-        "//dupindexkey:lib",
         "//indexsrch:lib",
         "//jbparse:lib",
         "//sqlinsts:lib",
@@ -86,9 +86,9 @@ rust_test(
     crate_root = "tests/dupkey.rs",
     deps = [
         ":lib",
+        "//dupindexkey:lib",
         "//indexcapn:lib",
         "//indexkey:lib",
-        "//dupindexkey:lib",
         "//indexsrch:lib",
         "//jbparse:lib",
         "//sqlinsts:lib",

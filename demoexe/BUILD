@@ -27,9 +27,9 @@ rust_library(
     crate_name = "demoexe",
     visibility = ["//visibility:public"],
     deps = [
-        "//sqlexet:lib",
         "//demodata:lib",
         "//relpart:lib",
+        "//sqlexet:lib",
     ] + all_crate_deps(
         normal = True,
     ),

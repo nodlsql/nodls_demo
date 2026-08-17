@@ -207,9 +207,9 @@ checksum = "b35204fbdc0b3f4446b89fc1ac2cf84a8a68971995d0bf2e925ec7cd960f9cb3"
 
 [[package]]
 name = "capnp"
-version = "0.25.2"
+version = "0.27.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c982cc37b8f646c753f3b0a24d4d40ca2eac8a9c2b9ea6fff524be67ddc184cb"
+checksum = "6ebfc0da565e747b1640e029bfbda72f61f39fcddfc8b465b4ae3f3e8b649f78"
 dependencies = [
  "embedded-io",
 ]
@@ -1314,7 +1314,6 @@ dependencies = [
  "clap",
  "crossterm",
  "sqlcontrols",
- "sqlexe",
  "sqlexet",
  "tracing",
  "tracing-subscriber",
@@ -1335,17 +1334,6 @@ dependencies = [
  "thiserror",
  "tracing",
  "tracing-subscriber",
-]
-
-[[package]]
-name = "sqlexe"
-version = "0.1.0"
-dependencies = [
- "bytes",
- "jsonb",
- "prost",
- "serde_json",
- "sqlexet",
 ]
 
 [[package]]

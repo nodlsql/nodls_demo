@@ -22,7 +22,7 @@ genrule(
     srcs = ["src/indexkey.capnp"],
     outs = ["src/indexkey_capnp.rs"],
     cmd = """
-       /usr/bin/capnp compile -o rust $(location src/indexkey.capnp)
+       capnpc -orust $(location src/indexkey.capnp)
        mv indexcapn/src/indexkey_capnp.rs $(RULEDIR)/src/indexkey_capnp.rs
     """,
 )
@@ -35,8 +35,8 @@ rust_doc(
 rust_library(
     name = "lib",
     srcs = [
-        "src/lib.rs",
         "src/indexkey_capnp.rs",
+        "src/lib.rs",
     ],
     aliases = aliases(),
     crate_name = "indexcapn",

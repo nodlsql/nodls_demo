@@ -139,8 +139,8 @@ rust_test(
         "//demoexe:lib",
         "//jbparse:lib",
         "//sqlexet:lib",
-        "//sqloptimize:lib",
         "//sqlinsts:lib",
+        "//sqloptimize:lib",
         "//sqlparse:lib",
         "//sqlplan:lib",
     ] + all_crate_deps(
@@ -160,8 +160,8 @@ rust_test(
         "//demoexe:lib",
         "//jbparse:lib",
         "//sqlexet:lib",
-        "//sqloptimize:lib",
         "//sqlinsts:lib",
+        "//sqloptimize:lib",
         "//sqlparse:lib",
         "//sqlplan:lib",
     ] + all_crate_deps(
@@ -182,8 +182,8 @@ rust_test(
         "//demoexe:lib",
         "//jbparse:lib",
         "//sqlexet:lib",
-        "//sqloptimize:lib",
         "//sqlinsts:lib",
+        "//sqloptimize:lib",
         "//sqlparse:lib",
         "//sqlplan:lib",
     ] + all_crate_deps(
@@ -212,7 +212,6 @@ rust_test(
         proc_macro = True,
     ),
 )  # Execute select test target
-
 
 # Execute select test target
 rust_test(

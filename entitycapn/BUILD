@@ -13,7 +13,7 @@
 # limitations under the License.
 
 load("@crates//:defs.bzl", "aliases", "all_crate_deps")
-load("@rules_rust//rust:defs.bzl", "rust_doc", "rust_library", "rust_test")
+load("@rules_rust//rust:defs.bzl", "rust_doc", "rust_library")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -22,7 +22,8 @@ genrule(
     srcs = ["src/entity.capnp"],
     outs = ["src/entity_capnp.rs"],
     cmd = """
-       /usr/bin/capnp compile -o rust $(location src/entity.capnp)
+       echo "PATH: $$PATH"
+       capnpc -orust $(location src/entity.capnp)
        mv entitycapn/src/entity_capnp.rs $(RULEDIR)/src/entity_capnp.rs
     """,
 )
@@ -35,8 +36,8 @@ rust_doc(
 rust_library(
     name = "lib",
     srcs = [
-        "src/lib.rs",
         "src/entity_capnp.rs",
+        "src/lib.rs",
     ],
     aliases = aliases(),
     crate_name = "entitycapn",

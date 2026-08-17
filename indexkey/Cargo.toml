@@ -23,5 +23,5 @@ publish = false
 path = "src/lib.rs"
 
 [dependencies]
-capnp = "0.25"
+capnp = "0.27"
 # sqlinsts = { version = "0.1.0", path = "../sqlinsts" }
