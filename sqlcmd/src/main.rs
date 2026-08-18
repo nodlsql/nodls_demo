@@ -69,7 +69,6 @@ impl CommandPrompt {
 
     pub fn run(&mut self, ctxt: &mut impl SqlExeTrait) -> Result<()> {
         terminal::enable_raw_mode()?;
-        execute!(io::stdout(), terminal::Clear(ClearType::All), MoveTo(0, 0))?;
 
         loop {
             self.display_prompt()?;
@@ -79,7 +78,9 @@ impl CommandPrompt {
                     code, modifiers, ..
                 }) => match code {
                     KeyCode::Enter => {
-                        self.handle_enter(ctxt)?;
+                        if self.handle_enter(ctxt)? {
+                            break;
+                        }
                     }
                     KeyCode::Backspace => {
                         self.handle_backspace()?;
@@ -100,16 +101,14 @@ impl CommandPrompt {
                         self.handle_down_arrow()?;
                     }
                     KeyCode::Char(c) => {
-                        if modifiers.contains(KeyModifiers::CONTROL) && c == 'c' {
-                            // Cancel current multi-line statement
-                            if !self.statement_lines.is_empty()
-                                || !self.current_line.trim().is_empty()
-                            {
-                                self.cancel_statement()?;
-                            } else {
-                                break;
-                            }
-                        } else {
+                        // Handle cancel statement if line or multi-line statement is not empty
+                        if modifiers.contains(KeyModifiers::CONTROL)
+                            && c == 'd'
+                            && (!self.current_line.is_empty()
+                                || !self.statement_lines.is_empty())
+                        {
+                            self.cancel_statement()?;
+                        } else if !modifiers.contains(KeyModifiers::CONTROL) {
                             self.handle_char(c)?;
                         }
                     }
@@ -175,13 +174,22 @@ impl CommandPrompt {
         Ok(())
     }
 
-    fn handle_enter(&mut self, ctxt: &mut impl SqlExeTrait) -> Result<()> {
+    fn handle_enter(&mut self, ctxt: &mut impl SqlExeTrait) -> Result<bool> {
         let mut stdout = io::stdout();
 
         // Move to next line
         execute!(stdout, Print("\n"))?;
 
         let trimmed_line = self.current_line.trim();
+
+        // Exit the prompt loop on an explicit quit command.
+        if self.statement_lines.is_empty()
+            && (trimmed_line.eq_ignore_ascii_case("quit")
+                || trimmed_line.eq_ignore_ascii_case("quit;"))
+        {
+            self.reset_statement();
+            return Ok(true);
+        }
 
         match classify_help_input(trimmed_line, self.help_topic) {
             HelpAction::Show(topic) => {
@@ -195,7 +203,7 @@ impl CommandPrompt {
                 self.show_help(topic)?;
                 self.help_topic = Some(topic);
                 self.reset_statement();
-                return Ok(());
+                return Ok(false);
             }
             HelpAction::InvalidSelection => {
                 terminal::disable_raw_mode()?;
@@ -210,7 +218,7 @@ impl CommandPrompt {
                 self.current_line.clear();
                 self.cursor_pos = 0;
                 self.history_index = None;
-                return Ok(());
+                return Ok(false);
             }
             HelpAction::NotHelp => {}
         }
@@ -226,7 +234,7 @@ impl CommandPrompt {
                 self.current_line.clear();
                 self.cursor_pos = 0;
                 self.history_index = None;
-                return Ok(());
+                return Ok(false);
             }
             // In multiline statement - treat as empty line continuation
         }
@@ -305,7 +313,7 @@ impl CommandPrompt {
             self.history_index = None;
         }
 
-        Ok(())
+        Ok(false)
     }
 
     fn show_help(&self, topic: HelpTopic) -> Result<()> {
@@ -441,9 +449,10 @@ impl CommandPrompt {
 fn main() -> Result<()> {
     println!("SQL Command Line Interface");
     println!("Features:");
-    println!("- Multi-line statements supported - end with ';'");
     println!("- Type help for command help");
-    println!("- Use Ctrl+C to cancel current statement or exit");
+    println!("- Type quit to exit");
+    println!("- Use Ctrl+D to cancel current statement");
+    println!("- Multi-line statements supported - end with ';'");
     println!("- Use Up/Down arrows for history (when not in multi-line mode)");
     println!("- Use Home/End to jump to line start/end");
     println!();
