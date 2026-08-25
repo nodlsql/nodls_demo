@@ -436,7 +436,7 @@ pub fn update_rels(
     rel_id: u32,
     curr_id: u32,
     succs: &Vec<u32>,
-) -> i32 {
+) -> Result<String, SqlExecError> {
     let mut data_part: [u8; 32000] = [0; 32000];
     let mut data_size: c_uint = data_part.len() as c_uint;
     let mut set_id: c_uint = 0;
@@ -454,25 +454,28 @@ pub fn update_rels(
          upd_type, rel_id, curr_id, succs, inverse, data_size
     );
     if sts != STS_SUCCESS {
-        return sts;
+        return Err(SqlExecError::ExecutionError(format!(
+            "Failed to get datapart for relationship update - sts: {}",
+            sts
+        )));
     }
     match upd_type {
         RelOpPb::Insert => {
             if let Err(e) = relpart::add_rel_successors(ctxt, rel_id, inverse, curr_id, succs) {
-                debug!("Failed to append rel successor: {}", e);
+                return Err(SqlExecError::ExecutionError(e.to_string()));
             } else if !inverse {
                 ctxt.increment_count(sqlexet::UpdCounter::AddSucc(succs.len() as i32));
             }
         }
         RelOpPb::Delete => {
             if let Err(e) = relpart::rm_rel_successors(ctxt, rel_id, inverse, curr_id, succs) {
-                debug!("Failed to remove rel successor: {}", e);
+                return Err(SqlExecError::ExecutionError(e.to_string()));
             } else if !inverse {
                 ctxt.increment_count(sqlexet::UpdCounter::RmSucc(succs.len() as i32));
             }
         }
     }
-    return STS_SUCCESS;
+    Ok("".to_string())
 }
 
 pub fn delete_inv_rel_predecessors(
@@ -581,29 +584,16 @@ pub fn get_sqlval_for_path(
         };
         return Ok(res_val.clone());
     }
-    let sqlval = jbparse::jsonb_to_sqlvalue(&jbpath, &data_slice.to_vec());
-    if phase == EvalPhasePb::StrippedProjection as i32 && sqlval.data.is_some() {
-        if let Some(Data::StringValue(s)) = &sqlval.data {
-            // if path is '*', then strip also empty rels and indexes, otherwise just strip the _id field
-            if jbpath == "$" || jbpath.len() > 2 && jbpath.starts_with("$.") {
-                if let Some(sql_value) =
-                    jbparse::jsonb_to_schema_stripped_sqlvalue(&data_slice.to_vec())
-                {
-                    let res_val = SqlValuePb {
-                        is_constant: false,
-                        data: Some(sql_value.data.unwrap_or(Data::NullValue(true))),
-                    };
-                    return Ok(res_val);
-                }
-            }
-            let stripped_str = jbparse::drop_key_from_jsonstr(&s, &"_id".to_string());
-            let stripped_sqlval = SqlValuePb {
-                is_constant: false,
-                data: Some(Data::StringValue(stripped_str)),
-            };
-            return Ok(stripped_sqlval);
+    // Special case for dataset desc
+    if phase == EvalPhasePb::StrippedProjection as i32 {
+        if let Some(stripped_data_slice) =
+            jbparse::jsonb_to_schema_stripped_jsonb(&data_slice.to_vec())
+        {
+            let sqlval = jbparse::jsonb_to_sqlvalue(&jbpath, &stripped_data_slice.to_vec());
+            return Ok(sqlval);
         }
     }
+    let sqlval = jbparse::jsonb_to_sqlvalue(&jbpath, &data_slice.to_vec());
     Ok(sqlval)
 }
 

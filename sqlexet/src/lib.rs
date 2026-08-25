@@ -54,14 +54,14 @@ pub enum UpdCounter {
 impl UpdCounter {
     pub fn inc(&mut self, count: i32) {
         match self {
-            UpdCounter::Insert(ref mut cnt)
-            | UpdCounter::Delete(ref mut cnt)
-            | UpdCounter::Update(ref mut cnt)
-            | UpdCounter::AddSucc(ref mut cnt)
-            | UpdCounter::RmSucc(ref mut cnt) 
-            | UpdCounter::CreateDataset(ref mut cnt)
-            | UpdCounter::AlterDataset(ref mut cnt)
-            | UpdCounter::DropDataset(ref mut cnt) => {
+            UpdCounter::Insert(cnt)
+            | UpdCounter::Delete(cnt)
+            | UpdCounter::Update(cnt)
+            | UpdCounter::AddSucc(cnt)
+            | UpdCounter::RmSucc(cnt)
+            | UpdCounter::CreateDataset(cnt)
+            | UpdCounter::AlterDataset(cnt)
+            | UpdCounter::DropDataset(cnt) => {
                 *cnt += count;
             }
         }
@@ -157,15 +157,10 @@ pub trait SqlExeTrait {
         data: &Vec<u8>,
         data_size: MtSizeT,
     ) -> MtStsT;
-    fn drop_dataset(
-        &mut self,
-        tranid: MtOidT,
-        dataset_id: MtOidT,
-    ) -> MtStsT;
+    fn drop_dataset(&mut self, tranid: MtOidT, dataset_id: MtOidT) -> MtStsT;
     fn create_index(&mut self, tranid: MtOidT, root_data: &Vec<u8>, root_id: &mut MtOidT)
         -> MtStsT;
-    fn drop_index(&mut self, tranid: MtOidT, root_id: MtOidT)
-        -> MtStsT;
+    fn drop_index(&mut self, tranid: MtOidT, root_id: MtOidT) -> MtStsT;
     fn write_index_page(
         &mut self,
         tranid: MtOidT,

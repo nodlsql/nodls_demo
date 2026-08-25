@@ -328,7 +328,7 @@ fn test_update_jsonstr() {
 }
 
 #[test]
-fn test_schema_stripped_to_sqlvalue() {
+fn test_schema_stripped_to_jsonb() {
     let dataset = serde_json::json!({
         "_id": 1,
         "name": "Dataset1",
@@ -348,7 +348,7 @@ fn test_schema_stripped_to_sqlvalue() {
             {
                 "_id": 100,
                 "name": "idx1",
-                "idx_type": "Pkey",
+                "idx_type": "pkey",
                 "segs": ["userid", "name"],
             }
         ]
@@ -356,23 +356,25 @@ fn test_schema_stripped_to_sqlvalue() {
     // Convert to jsonb bytes
     let jsonb_bytes = jbparse::jsonstr_to_jsonb(&dataset.to_string()).unwrap();
     // Convert to SQL value
-    let sql_value = jbparse::jsonb_to_schema_stripped_sqlvalue(&jsonb_bytes);
-    println!(
-        "TEST SCHEMA STRIPPED TO SQLVALUE - Dataset: {:?} SQL Value: {:?}",
-        dataset, sql_value
-    );
-    match sql_value {
-        Some(value) => match value.data.as_ref().unwrap() {
-            sqlinsts::sql_value_pb::Data::StringValue(s) => {
-                // Expect the SQL value to contain all fields of the dataset
-                assert_eq!(s, "{\"name\":\"Dataset1\",\
-    \"rels\":[{\"name\":\"rs1\",\"tgt_dataset\":\"ds1\"},{\"name\":\"rs2\",\"tgt_dataset\":\"ds2\"}],\
-    \"indexes\":[{\"name\":\"idx1\",\"segs\":[\"userid\",\"name\"],\"idx_type\":\"Pkey\"}]}");
-            }
-            _ => panic!("Expected StringValue"),
-        },
-        None => panic!("Expected Some value"),
+    let jsonb_desc = match jbparse::jsonb_to_schema_stripped_jsonb(&jsonb_bytes) {
+        Some(v) => v,
+        None => panic!("Failed to get stripped jsonb"),
     };
+    println!(
+        "TEST SCHEMA STRIPPED TO SQLVALUE - Dataset: {:?} JSONB: {:?}",
+        dataset, jsonb_desc
+    );
+    let sqlval = jbparse::jsonb_to_sqlvalue("$", &jsonb_desc.to_vec());
+    let value_str = match sqlval.data.as_ref().unwrap() {
+        sqlinsts::sql_value_pb::Data::StringValue(s) => s,
+        _ => panic!("Expected StringValue"),
+    };
+    assert_eq!(value_str, 
+        "{\
+           \"indexes\":[{\"idx_type\":\"pkey\",\"name\":\"idx1\",\"segs\":[\"userid\",\"name\"]}],\
+           \"name\":\"Dataset1\",\
+           \"rels\":[{\"name\":\"rs1\",\"tgt_dataset\":\"ds1\"},{\"name\":\"rs2\",\"tgt_dataset\":\"ds2\"}]\
+        }");
 
     // Strip empty arrays
     let dataset = serde_json::json!({
@@ -382,13 +384,16 @@ fn test_schema_stripped_to_sqlvalue() {
         "indexes": []
     });
     let jsonb_bytes = jbparse::jsonstr_to_jsonb(&dataset.to_string()).unwrap();
-    let sql_value = jbparse::jsonb_to_schema_stripped_sqlvalue(&jsonb_bytes);
+    let jsonb_desc = match jbparse::jsonb_to_schema_stripped_jsonb(&jsonb_bytes) {
+        Some(v) => v,
+        None => panic!("Failed to get stripped jsonb"),
+    };
     println!(
-        "TEST SCHEMA STRIPPED TO SQLVALUE - Dataset with empty arrays: {:?} SQL Value: {:?}",
-        dataset, sql_value
+        "TEST SCHEMA STRIPPED TO SQLVALUE - Dataset with empty arrays: {:?} JSONB: {:?}",
+        dataset, jsonb_desc
     );
-    let value = sql_value.unwrap();
-    let value_str = match value.data.as_ref().unwrap() {
+    let sqlval = jbparse::jsonb_to_sqlvalue("$", &jsonb_desc.to_vec());
+    let value_str = match sqlval.data.as_ref().unwrap() {
         sqlinsts::sql_value_pb::Data::StringValue(s) => s,
         _ => panic!("Expected StringValue"),
     };
@@ -416,7 +421,7 @@ fn test_schema_stripped_key() {
             {
                 "_id": 100,
                 "name": "idx1",
-                "idx_type": "Pkey",
+                "idx_type": "pkey",
                 "segs": ["userid", "name"],
             }
         ]
@@ -442,7 +447,7 @@ fn test_schema_stripped_key() {
         "indexes": [
             {
                 "name": "idx1",
-                "idx_type": "Pkey",
+                "idx_type": "pkey",
                 "segs": ["userid", "name"],
             }
         ]

@@ -21,14 +21,14 @@ module(
 )
 
 # https://github.com/bazelbuild/rules_rust/releases
-bazel_dep(name = "protobuf", version = "31.1")
-bazel_dep(name = "rules_rust", version = "0.66.0")
-bazel_dep(name = "bazel_skylib", version = "1.8.1")
-bazel_dep(name = "rules_cc", version = "0.2.13")
+bazel_dep(name = "protobuf", version = "33.4")
+bazel_dep(name = "rules_rust", version = "0.73.0")
+bazel_dep(name = "bazel_skylib", version = "1.8.2")
+bazel_dep(name = "rules_cc", version = "0.2.17")
 
 # Rust toolchain
-RUST_EDITION = "2021"
-RUST_VERSION = "1.90.0"
+RUST_EDITION = "2024"
+RUST_VERSION = "1.85.0"
 
 rust = use_extension("@rules_rust//rust:extensions.bzl", "rust")
 rust.toolchain(
@@ -39,7 +39,7 @@ use_repo(rust, "rust_toolchains")
 
 register_toolchains("@rust_toolchains//:all")
 
-crate = use_extension("@rules_rust//crate_universe:extension.bzl", "crate")
+crate = use_extension("@rules_rust//crate_universe:extensions.bzl", "crate")
 
 # External crates
 crate.from_cargo(
