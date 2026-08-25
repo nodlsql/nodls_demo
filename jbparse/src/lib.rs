@@ -47,25 +47,6 @@ pub struct IndexDesc {
     pub segs: Vec<String>,
 }
 
-pub fn jbstring_to_schema_stripped_sqlvalue(rjb: &RawJsonb<'_>) -> SqlValuePb {
-    let res_str = rjb.to_string();
-    // Strip '_id' fields from the value
-
-    debug!("JBPARSE STRING - result string value={:?}", res_str);
-    // Strip quotes if the result is a string
-    let strip_str;
-    let res_str = if res_str.starts_with('"') && res_str.ends_with('"') {
-        &res_str[1..res_str.len() - 1]
-    } else {
-        strip_str = drop_key_from_jsonstr(&res_str, &"_id".to_string());
-        &strip_str
-    };
-    SqlValuePb {
-        is_constant: false,
-        data: Some(sql_value_pb::Data::StringValue(res_str.to_string())),
-    }
-}
-
 pub fn jbstring_to_sqlvalue(rjb: &RawJsonb<'_>) -> SqlValuePb {
     let res_str = rjb.to_string();
     debug!("JBPARSE STRING - result string value={:?}", res_str);
@@ -150,7 +131,7 @@ pub fn jsonb_to_dataset_desc(jsonb_bytes: &Vec<u8>) -> Option<DatasetDesc> {
     Some(dataset_desc)
 }
 
-pub fn jsonb_to_schema_stripped_sqlvalue(jsonb_bytes: &Vec<u8>) -> Option<SqlValuePb> {
+pub fn jsonb_to_schema_stripped_jsonb(jsonb_bytes: &Vec<u8>) -> Option<Vec<u8>> {
     let dataset_desc = match jsonb_to_dataset_desc(jsonb_bytes) {
         Some(v) => v,
         None => return None,
@@ -193,13 +174,16 @@ pub fn jsonb_to_schema_stripped_sqlvalue(jsonb_bytes: &Vec<u8>) -> Option<SqlVal
             json_desc_arr.push(index_json);
         }
     }
-    // For simplicity, convert the stripped jsonb to string and return as sqlvalue
-    let res_str = json_desc.to_string();
-    debug!("JBPARSE - stripped jsonb string value={:?}", res_str);
-    Some(SqlValuePb {
-        is_constant: false,
-        data: Some(sql_value_pb::Data::StringValue(res_str)),
-    })
+    // Convert json_desc to jsonb bytes
+    let json_desc_str = json_desc.to_string();
+    let jsonb_desc = match json_desc_str.parse::<jsonb::OwnedJsonb>() {
+        Ok(v) => v,
+        Err(e) => {
+            debug!("Failed to encode stripped dataset descriptor to jsonb - {}", e);
+            return None;    
+        }
+    };
+    Some(jsonb_desc.to_vec())
 }
 
 pub fn path_to_jbpath(

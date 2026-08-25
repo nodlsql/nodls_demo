@@ -211,15 +211,15 @@ rust_test(
         normal = True,
         proc_macro = True,
     ),
-)  # Execute select test target
+)
 
-# Execute select test target
+# Execute basics test target
 rust_test(
-    name = "select",
+    name = "basics",
     srcs = [
-        "tests/select.rs",
+        "tests/basics.rs",
     ],
-    crate_root = "tests/select.rs",
+    crate_root = "tests/basics.rs",
     deps = [
         ":lib",
         "//demoexe:lib",
@@ -232,14 +232,14 @@ rust_test(
         normal = True,
         proc_macro = True,
     ),
-)  # Execute select test target
+)
 
 rust_test(
-    name = "tests",
+    name = "ops",
     srcs = [
-        "tests/tests.rs",
+        "tests/ops.rs",
     ],
-    crate_root = "tests/tests.rs",
+    crate_root = "tests/ops.rs",
     deps = [
         ":lib",
         "//demoexe:lib",

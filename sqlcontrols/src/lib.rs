@@ -43,11 +43,8 @@ macro_rules! next_select_stmt_exec {
                 debug!("Instruction execution offset: {} result: {:?}", $o, res);
             }
             Err(e) => {
-                println!("Error at execution offset: {} result: {:?}", $o, e);
-                return Err(SqlExecError::ExecutionError(format!(
-                    "Failed to execute instruction at offset {}: {}",
-                    $o, e
-                )));
+                // Return the error from the current function
+                return Err(e);
             }
         }
     };
@@ -239,8 +236,14 @@ fn alter_dataset_stmt_exec(
                         // Verify if index already exists
                         for idx in &ds_desc.indexes {
                             if idx.name == d.name {
+                                if idx.name == ds_desc.name {
+                                    return Err(SqlExecError::ExecutionError(format!(
+                                        "Primary key index already exists for dataset '{}'",
+                                        ds_desc.name
+                                    )));
+                                }
                                 return Err(SqlExecError::ExecutionError(format!(
-                                    "Index '{}' already exists in dataset '{}'",
+                                    "Index '{}' already exists for dataset '{}'",
                                     d.name, ds_desc.name
                                 )));
                             }
@@ -474,23 +477,19 @@ fn irel_update_exec(
                         ids
                     );
                     for item_id in &ids {
-                        let sts = utils::update_rels(
+                        if let Err(e) = utils::update_rels(
                             ctxt,
                             upd_type,
                             true, // inverse rel
                             irelupd.rel_id,
                             *item_id,
                             &vec![curr_id],
-                        );
-                        if sts != STS_SUCCESS {
-                            println!(
-                                "Failed to update inverse rel - item id {} sts: {}",
-                                item_id, sts
-                            );
+                        ) {
+                            return Err(e);
                         }
                     }
                     // Update the self id direct relationship with the target ids we got from the PK index
-                    let sts = utils::update_rels(
+                    let ret = utils::update_rels(
                         ctxt,
                         upd_type,
                         false, // direct rel
@@ -498,16 +497,16 @@ fn irel_update_exec(
                         curr_id,
                         &ids,
                     );
-                    if sts != STS_SUCCESS {
-                        println!("Failed to update rel - curr_id {} sts: {}", curr_id, sts);
+                    if let Err(e) = ret {
+                        return Err(e);
                     }
                 }
                 None => {
-                    // No matching entry, set null value
-                    debug!(
-                        "irel_update_exec - no matching entry key_val_idx: {}",
-                        irelupd.key_val_idx
-                    );
+                    // No matching pkey entry
+                    return Err(SqlExecError::ExecutionError(format!(
+                        "No matching pkey entry for relationship {}",
+                        irelupd.name
+                    )));
                 }
             }
         }
@@ -805,11 +804,7 @@ fn icompare_exec(
             let right_val = values[(icomp.right_val_idx + val_offset) as usize].borrow();
             debug!("Left value: {:?}", left_val);
             debug!("Right value: {:?}", right_val);
-            matching_comp = utils::compare_values(
-                &left_val,
-                &right_val,
-                comp_op,
-            );
+            matching_comp = utils::compare_values(&left_val, &right_val, comp_op);
         }
         if matching_comp {
             match_count += 1;
