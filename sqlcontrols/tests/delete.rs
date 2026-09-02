@@ -21,8 +21,8 @@ fn test_delete_stmt_exe() {
     // Inits
     let mut ctxt = demoexe::DemoContextT::new();
     for stmt in [
-        "create dataset myds relationship rs(tgtds)",
         "create dataset tgtds primary key(b,c)",
+        "create dataset myds relationship rs(tgtds)",
         "insert into myds values '{\"a\": 1}'",
         "insert into myds values '{\"a\": 2}'",
         "insert into tgtds values '{}'",
@@ -109,8 +109,8 @@ fn test_delete_rel_stmt_exe() {
     // Inits
     let mut ctxt = demoexe::DemoContextT::new();
     for stmt in [
-        "create dataset myds relationship rs(tgtds)",
         "create dataset tgtds primary key(b,c)",
+        "create dataset myds relationship rs(tgtds)",
         "insert into myds values '{\"a\": 1}'",
         "insert into myds values '{\"a\": 2}'",
         "insert into tgtds values '{}'",

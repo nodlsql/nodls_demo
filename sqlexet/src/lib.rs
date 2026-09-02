@@ -100,8 +100,11 @@ pub const MTS_ENDOFSTREAM: i32 = 0x08468078;
 pub const MTS_CLASSNOTFOUND: i32 = 0x84680fa;
 pub const MTS_OBJNOTFOUND: i32 = 0x8468442;
 
-// TBD - needs more accurate surrogate check. Currently this includes dataset desc at 0x1061
-pub const MIN_USER_DATASET_ID: u32 = 0x1060;
+ // nodls pseudo-dataset 0x1002
+ pub static META_DATASET_ID: MtOidT = 4098;
+
+// Currently this includes nodls pseudo-dataset 0x1002
+pub const MIN_USER_DATASET_ID: u32 = 4098;
 
 pub type MtSizeT = u32;
 pub type MtOidT = u32;

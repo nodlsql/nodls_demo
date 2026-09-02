@@ -74,7 +74,7 @@ pub fn translate(
         // Create dataset statement
         ast::SqlStmt::CreateDataset(ds) => {
             sqlplan = translate_create_dataset(ds)?;
-            // Check if dataset already exists
+            // Check if dataset already exists, resolve rel target
             sqloptimize::optimize_plan(ctxt, &mut sqlplan)?;
         }
         // Drop dataset statement
@@ -174,7 +174,7 @@ pub fn translate(
         }
     }
 
-    #[cfg(demoprt)]
+    #[cfg(any(demoprt, prodprt))]
     println!("SQL Plan:\n{}", sqloptimize::utils::pretty_print_plan(&sqlplan));
 
     Ok(sqlplan)

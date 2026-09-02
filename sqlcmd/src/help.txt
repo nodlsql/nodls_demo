@@ -6,97 +6,115 @@ Online Help
 4 help update
 5 help delete
 6 help relationships
-7 help jsonpath
+7 help JSONPath
 
 [help dataset]
-Dataset help
+Dataset commands help
 1 help create dataset
 2 help alter dataset
 3 help drop dataset
 4 help describe dataset
 
 [help create dataset]
-Create dataset help
+CREATE DATASET command help
 Use CREATE DATASET to define a new dataset.
 
-Examples:
+Minimal dataset create example:
 CREATE DATASET myds;
-CREATE DATASET myds PRIMARY KEY(a.b, c);
-CREATE DATASET myds UNIQUE INDEX uix(a), INDEX dupix(b);
-CREATE DATASET myds RELATIONSHIP rs(tgtds);
+
+Full featured example:
+CREATE DATASET myds
+  PRIMARY KEY(a.b, c),
+  UNIQUE INDEX uix(a),
+  INDEX dupix(b),
+  RELATIONSHIP rs(tgtds);
 
 [help alter dataset]
-Alter dataset help
-Add or drop relationships, indexes or primary key.
+ALTER DATASET command help
+Adds or drops relationships, indexes, or the primary key.
 
-Examples:
-ALTER DATASET myds DROP RELATIONSHIP rs, ADD RELATIONSHIP nurs(tgtds);
-ALTER DATASET myds ADD PRIMARY KEY(b, c);
-ALTER DATASET myds DROP INDEX uix;
+Example:
+ALTER DATASET myds
+  DROP RELATIONSHIP rs,
+  ADD RELATIONSHIP nurs(tgtds),
+  ADD PRIMARY KEY(b, c),
+  DROP INDEX uix;
 
 [help drop dataset]
-Drop dataset help
-Drop a dataset and associated indexes, relationships.
+DROP DATASET command help
+Drops a dataset and associated indexes and relationships.
 
 Example:
 DROP DATASET myds;
 
 [help describe dataset]
-Describe dataset help
-Describe a dataset and associated indexes, relationships.
+DESCRIBE DATASET command help
+Displays the CREATE DATASET statement, including indexes and relationships.
 
 Example:
 DESCRIBE DATASET myds;
 
+To list all the datasets:
+SELECT name FROM DATASET;
+
 [help select]
-Select help
+SELECT command help
 1 select list
 2 select predicates
 3 select projection
 
 [help select list]
-Select list help
-Specify the dataset list in the FROM clause.
+SELECT FROM list help
+Specifies the dataset list in the FROM clause.
 
 Examples:
 SELECT a, b FROM myds;
-SELECT d.a, u.b FROM myds d, urds u WHERE d.a = u.c
+SELECT d.a, u.b FROM myds d, urds u WHERE d.x = u.y;
 
 [help select predicates]
-Select predicates help
-Set WHERE clause predicates to filter the result set on path expressions
-like a, a.b, a.b.c ...
+SELECT FROM WHERE predicates help
+Uses WHERE clause predicates to filter the result set on path expressions
+like a, a.b, a.b.c. Path expressions can be preceded by relationship navigation.
+
+The following operators:
+=, <>, >=, <=, <, >
+IN, NOT IN
+IS NULL, IS NOT NULL
+LIKE, NOT LIKE
+REGEXP, NOT REGEXP
 
 Examples:
 SELECT * FROM myds WHERE a IN (2, 3) AND b = c.d + 1;
-SELECT * FROM myds WHERE rs.c = 1.00;
+SELECT * FROM myds WHERE a LIKE 'H. ther%';
+SELECT * FROM myds WHERE a REGEXP '^H. ther.*$';
 
 [help select projection]
-Select projection help
+SELECT projection help
+Specify projection as a comma-separated list of path and relationship expressions.
 
 Examples:
 SELECT 1 + 1.50;
 SELECT a.b, c FROM myds;
-SELECT * FROM myds;
+SELECT rs.* FROM myds;
 
 [help insert]
-Insert help
-Insert values into a dataset.
+INSERT INTO command help
+Inserts values into a dataset.
 
 Example:
 INSERT INTO myds VALUES '{"a": 1, "b": "hi"}', '{"a": 2}';
 
 [help update]
-Update help
-Modify existing dataset items.
+UPDATE SET or DELETE command help
+Updates or deletes JSON elements within dataset items.
 
-Example:
+Examples:
 UPDATE myds SET a = 2, b = 'hello' WHERE a = 1;
 UPDATE myds DELETE c, d WHERE a = 1;
 
 [help delete]
-Delete help
-Delete a dataset item.
+DELETE FROM command help
+Deletes dataset items.
 
 Example:
 DELETE FROM myds WHERE a = 1;
@@ -111,54 +129,57 @@ Relationships help
 6 relationship projection
 
 [help relationship create]
-Relationship create help
-Create a relationship that binds to the primary key of the target dataset.
+CREATE DATASET RELATIONSHIP/ ALTER DATASET ADD RELATIONSHIP help
+Creates a relationship that binds to the primary key of the target dataset.
 
-Example:
+Examples:
 CREATE DATASET myds RELATIONSHIP rs(tgtds);
+ALTER DATASET myds ADD RELATIONSHIP rs(tgtds);
 
 [help relationship drop]
-Relationship drop help
-Drop a relationship.
+ALTER DROP relationship help
+Drops a relationship.
 
 Example:
 ALTER DATASET myds DROP RELATIONSHIP rs;
 
 [help relationship insert]
-Relationship insert help
-Insert a successor in a relationship. The values inserted should correspond to existing
-primary key segments of the target dataset, in the same order.
+INSERT INTO relationship help
+Adds a relationship link. Values must match existing primary key segments of the target dataset, in declaration order.
 
 Example:
 INSERT INTO myds.rs VALUES ('hi', 1) WHERE a = 2;
 
 [help relationship delete]
-Relationship delete help
-Delete a relationship successor.
+DELETE FROM relationship help
+Deletes relationship successors.
 
 Example:
 DELETE FROM myds.rs VALUES ('hi', 1) WHERE a = 2;
 
 [help relationship predicate]
-Relationship predicate help
-Filter items through relationship or inverse relationship navigation.
+SELECT FROM WHERE relationship predicate help
+Filters items through relationship or inverse relationship navigation. These can be followed by path or JSONPath expressions.
 
-Example:
+Examples:
 SELECT * FROM myds WHERE rs.d = 1;
 SELECT * FROM tgtds WHERE INVERSE(myds.rs).a = 2;
 
 [help relationship projection]
-Relationship projection help
-Project item content through relationship or inverse relationship navigation.
+SELECT relationship projection help
+Projects dataset item content through relationship or inverse relationship navigation.
 
-Example:
+Examples:
 SELECT a, b, rs.d FROM myds;
 SELECT b, c.d, INVERSE(myds.rs).* FROM tgtds;
 
-[help jsonpath]
-Jsonpath expressions can be combined with alias or relationship navigation.
+[help JSONPath]
+JSONPath expressions help
+You can combine JSONPath expressions with alias and relationship navigation.
 
-Example:
+Examples:
+SELECT a[1,2] FROM myds;
+SELECT * FROM myds WHERE a[*]?(@.b >= 2) IS NOT NULL;
+
+Example with alias 'm' and relationship 'rs':
 SELECT m.rs.$.* FROM myds m;
-select a[1,2] FROM myds;
-SELECT a[*]?(@.b >= 2) FROM myds;

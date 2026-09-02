@@ -70,12 +70,6 @@ pub fn optimize_plan(
             }
             Some(sql_inst_pb::Inst::Dpath(d)) => {
                 // Analyzers are empty for statements like 'select 1'
-                if analyzers.is_empty() {
-                    optimized_insts.push(SqlInstPb {
-                        inst: Some(sql_inst_pb::Inst::Dpath(d.clone())),
-                    });
-                    continue;
-                }
                 if d.ds_name == "dataset" {
                     let eval_phase = if d.phase == EvalPhasePb::Projection as i32 {
                         EvalPhasePb::StrippedProjection as i32
@@ -83,7 +77,8 @@ pub fn optimize_plan(
                         d.phase as i32
                     };
                     let path_str = jbparse::path_to_jbpath(&d.pathsegs.join("."), &d.jsonpath);
-                    jbparse::check_json_path(&path_str).map_err(|e| SqlTranslateError::InvalidJsonPath(e))?;
+                    jbparse::check_json_path(&path_str)
+                        .map_err(|e| SqlTranslateError::InvalidJsonPath(e))?;
                     optimized_insts.push(SqlInstPb {
                         inst: Some(sql_inst_pb::Inst::Dpath(IDatapathPb {
                             phase: eval_phase,
@@ -91,6 +86,12 @@ pub fn optimize_plan(
                             path_str: path_str,
                             ..d.clone()
                         })),
+                    });
+                    continue;
+                }
+                if analyzers.is_empty() {
+                    optimized_insts.push(SqlInstPb {
+                        inst: Some(sql_inst_pb::Inst::Dpath(d.clone())),
                     });
                     continue;
                 }
@@ -181,7 +182,8 @@ pub fn optimize_plan(
                 }
                 // 4 - No more rel found for this path segment, fix the path and generate the datapath inst
                 let path_str = jbparse::path_to_jbpath(&new_pathsegs.join("."), &d.jsonpath);
-                jbparse::check_json_path(&path_str).map_err(|e| SqlTranslateError::InvalidJsonPath(e))?;
+                jbparse::check_json_path(&path_str)
+                    .map_err(|e| SqlTranslateError::InvalidJsonPath(e))?;
                 iutils::push_idatapath(
                     &analyzers,
                     &d,
@@ -210,7 +212,7 @@ pub fn optimize_plan(
             }
             Some(sql_inst_pb::Inst::Insert(i)) => {
                 // Only one dataset expected
-                let key_val_idx = ds_key_val_idx!(key_val_idx_map, &"".to_string());
+                let key_val_idx = 0;
                 iutils::push_iinsert(&analyzers[0], &i, key_val_idx, &mut optimized_insts);
             }
             Some(sql_inst_pb::Inst::Delete(d)) => {

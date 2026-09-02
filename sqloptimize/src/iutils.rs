@@ -12,8 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::utils;
-use crate::utils::{DatasetAnalyzer, RelAnalyzer};
+use crate::utils::{self, DatasetAnalyzer, RelAnalyzer};
 use sqlinsts::{
     sql_inst_pb, IDatapathPb, IDatasetPb, IDdlPb, IDeletePb, IIndexPb, IInsertPb, IRelUpdPb,
     IUpdatePb, IYankPb, IndexOpPb, RelDescPb, SqlInstPb,
@@ -52,17 +51,17 @@ pub fn push_idataset(
     key_val_idx: i32,
     optimized_insts: &mut Vec<SqlInstPb>,
 ) -> () {
+    if idataset_inst.name == "dataset" {
+        optimized_insts.push(SqlInstPb {
+            inst: Some(sql_inst_pb::Inst::Dataset(IDatasetPb {
+                dataset_id: sqlexet::META_DATASET_ID,
+                key_val_idx: key_val_idx,
+                ..idataset_inst.clone()
+            })),
+        });
+        return;
+    }
     for analyzer in analyzers {
-        if idataset_inst.name == "dataset" {
-            optimized_insts.push(SqlInstPb {
-                inst: Some(sql_inst_pb::Inst::Dataset(IDatasetPb {
-                    dataset_id: analyzer.idataset.dataset_id,
-                    key_val_idx: key_val_idx,
-                    ..idataset_inst.clone()
-                })),
-            });
-            return;
-        }
         if analyzer.idataset.name == idataset_inst.name {
             let mut has_idx = false;
             // TBD - We pick up first come index for now
@@ -249,18 +248,31 @@ pub fn push_ddlupdate(
     ddlupdate_inst: &IDdlPb,
     optimized_insts: &mut Vec<SqlInstPb>,
 ) -> () {
+    // Get target dataset name from ddlupdate inst
+    let tgt_ds_name = &ddlupdate_inst.rs_tgt_name;
+    let ds_name = &ddlupdate_inst.ds_name;
     if analyzers.is_empty() {
-        // no ds analyzer for create ds
+        // no ds analyzer for create ds with no rel target in sight
         optimized_insts.push(SqlInstPb {
             inst: Some(sql_inst_pb::Inst::DdlUpdate(IDdlPb {
                 ..ddlupdate_inst.clone()
             })),
         });
     } else {
-        // single ds analyzer expected for alter stmts.
+        let mut ds_id = 0;
+        let mut tgt_ds_id = 0;
+        for analyzer in analyzers {
+            if analyzer.idataset.name == *ds_name {
+                ds_id = analyzer.idataset.dataset_id;
+            } else if analyzer.idataset.name == *tgt_ds_name {
+                tgt_ds_id = analyzer.idataset.dataset_id;
+            }
+        }
         optimized_insts.push(SqlInstPb {
+            // Set rs_tgt_id from analyzer for alter stmts
             inst: Some(sql_inst_pb::Inst::DdlUpdate(IDdlPb {
-                ds_id: analyzers[0].idataset.dataset_id,
+                ds_id: ds_id,
+                rs_tgt_id: tgt_ds_id,
                 ..ddlupdate_inst.clone()
             })),
         });

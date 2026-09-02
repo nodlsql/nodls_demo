@@ -87,9 +87,10 @@ message IDdlPb {
   string ds_name = 2;
   uint32 ds_id = 3;
   string name = 4;
-  string tgt_ds_name = 5;       // for add rel
-  IndexTypePb idx_type = 6;     // for create index
-  repeated string seg_strs = 7; // for create index, composite key 'a.b, c'
+  string rs_tgt_name = 5;       // for add rel
+  uint32 rs_tgt_id = 6;         // for add rel
+  IndexTypePb idx_type = 7;     // for create index
+  repeated string seg_strs = 8; // for create index, composite key 'a.b, c'
 }
 
 enum OperPb {

@@ -234,6 +234,28 @@ rust_test(
     ),
 )
 
+# Execute ddlnono test target
+rust_test(
+    name = "ddlnono",
+    srcs = [
+        "tests/ddlnono.rs",
+    ],
+    crate_root = "tests/ddlnono.rs",
+    deps = [
+        ":lib",
+        "//sqloptimize:lib",
+        "//demoexe:lib",
+        "//jbparse:lib",
+        "//sqlexet:lib",
+        "//sqlinsts:lib",
+        "//sqlparse:lib",
+        "//sqlplan:lib",
+    ] + all_crate_deps(
+        normal = True,
+        proc_macro = True,
+    ),
+)
+
 rust_test(
     name = "ops",
     srcs = [

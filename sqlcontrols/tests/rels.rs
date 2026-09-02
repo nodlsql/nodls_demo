@@ -22,8 +22,9 @@ fn test_rel_stmt_exe() {
     let mut ctxt = demoexe::DemoContextT::new();
     for stmt in [
         "create dataset job",
-        "create dataset tgtds primary key(b,c), relationship trs(myds)",
+        "create dataset tgtds primary key(b,c)",
         "create dataset myds primary key(a), relationship rs(tgtds)",
+        "alter dataset tgtds add relationship trs(myds)",
         "insert into myds values '{\"a\": 2}'",
         "insert into myds values '{\"a\": 3}'",
         "insert into tgtds values '{\"b\": \"hi\", \"c\": 1}'",

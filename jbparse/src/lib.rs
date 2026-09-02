@@ -36,8 +36,9 @@ pub struct DatasetDesc {
 #[derive(Serialize, Deserialize, Debug)]
 pub struct RelDesc {
     pub _id: u32,
-    pub name: String,
     pub tgt_dataset: String,
+    pub _tgt_id: u32,
+    pub name: String,
 }
 #[derive(Serialize, Deserialize, Debug)]
 pub struct IndexDesc {
@@ -136,6 +137,7 @@ pub fn jsonb_to_schema_stripped_jsonb(jsonb_bytes: &Vec<u8>) -> Option<Vec<u8>> 
         Some(v) => v,
         None => return None,
     };
+    debug!("Dataset descriptor: {:?}", dataset_desc);
     // Create json value with:
     // id fields stripped out and empty array fields stripped out
     let mut json_desc = json!({
@@ -319,7 +321,6 @@ pub fn jsonstr_to_jsonb(json_str: &str) -> Result<Vec<u8>, JsonParseError> {
             }
         }
         Err(e) => {
-            println!("Failed to parse JSON string: {:?}", e);
             return Err(JsonParseError::InvalidJson(e.to_string()));
         }
     }

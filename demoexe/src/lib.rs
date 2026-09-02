@@ -21,7 +21,6 @@ use sqlexet::{
 use std::ffi::c_void;
 use tracing::debug;
 
-static META_DATASET_ID: MtOidT = 4193; // raz pseudo-dataset
 static MIN_ENTITY_ID: MtOidT = 10000;
 
 pub struct DemoContextT {
@@ -45,7 +44,7 @@ impl SqlExeTrait for DemoContextT {
                 indexes: vec![],
                 rs_items: vec![],
                 invrs_items: vec![],
-                next_dataset_id: META_DATASET_ID + 1,
+                next_dataset_id: sqlexet::META_DATASET_ID + 1,
                 next_item_id: MIN_ENTITY_ID,
             },
         }
@@ -369,7 +368,7 @@ impl SqlExeTrait for DemoContextT {
         schema_item: &mut MtOidT,
     ) -> MtStsT {
         if schema_name == "dataset" {
-            *schema_item = META_DATASET_ID;
+            *schema_item = sqlexet::META_DATASET_ID;
             return STS_SUCCESS;
         }
         // Scan DatasetPb for a dataset with the given name and return its id
@@ -395,9 +394,9 @@ impl SqlExeTrait for DemoContextT {
         num_ids: &mut MtSizeT,
     ) -> MtStsT {
         *num_ids = 0;
-        if dataset_id == META_DATASET_ID {
+        if dataset_id == sqlexet::META_DATASET_ID {
             // Return all dataset ids in DATA_CTX
-            *set_stream = META_DATASET_ID;
+            *set_stream = sqlexet::META_DATASET_ID;
             unsafe {
                 let ids_slice = std::slice::from_raw_parts_mut(ids, 100);
                 for (i, set) in self.demo_data.datasets.iter().enumerate() {
@@ -581,7 +580,7 @@ fn read_datapart(
                     data,
                     data.len()
                 );
-                *dataset_id = META_DATASET_ID;
+                *dataset_id = sqlexet::META_DATASET_ID;
                 return copy_data_part(data, data_part, data_size);
             }
         }

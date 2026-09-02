@@ -335,13 +335,15 @@ fn test_schema_stripped_to_jsonb() {
         "rels": [
             {
                 "_id": 10,
-                "name": "rs1",
-                "tgt_dataset": "ds1",
+                "tgt_dataset": "job",
+                "_tgt_id": 100,
+                "name": "rs1"
             },
             {
                 "_id": 20,
-                "name": "rs2",
-                "tgt_dataset": "ds2",
+                "tgt_dataset": "dev",
+                "_tgt_id": 101,
+                "name": "rs2"
             }
         ],
         "indexes": [
@@ -349,7 +351,7 @@ fn test_schema_stripped_to_jsonb() {
                 "_id": 100,
                 "name": "idx1",
                 "idx_type": "pkey",
-                "segs": ["userid", "name"],
+                "segs": ["userid", "name"]
             }
         ]
     });
@@ -360,21 +362,20 @@ fn test_schema_stripped_to_jsonb() {
         Some(v) => v,
         None => panic!("Failed to get stripped jsonb"),
     };
-    println!(
-        "TEST SCHEMA STRIPPED TO SQLVALUE - Dataset: {:?} JSONB: {:?}",
-        dataset, jsonb_desc
-    );
+    println!("TEST SCHEMA STRIPPED TO SQLVALUE - Dataset: {:?}", dataset);
     let sqlval = jbparse::jsonb_to_sqlvalue("$", &jsonb_desc.to_vec());
     let value_str = match sqlval.data.as_ref().unwrap() {
         sqlinsts::sql_value_pb::Data::StringValue(s) => s,
         _ => panic!("Expected StringValue"),
     };
-    assert_eq!(value_str, 
+    assert_eq!(
+        value_str,
         "{\
            \"indexes\":[{\"idx_type\":\"pkey\",\"name\":\"idx1\",\"segs\":[\"userid\",\"name\"]}],\
            \"name\":\"Dataset1\",\
-           \"rels\":[{\"name\":\"rs1\",\"tgt_dataset\":\"ds1\"},{\"name\":\"rs2\",\"tgt_dataset\":\"ds2\"}]\
-        }");
+           \"rels\":[{\"name\":\"rs1\",\"tgt_dataset\":\"job\"},{\"name\":\"rs2\",\"tgt_dataset\":\"dev\"}]\
+        }"
+    );
 
     // Strip empty arrays
     let dataset = serde_json::json!({
@@ -409,12 +410,10 @@ fn test_schema_stripped_key() {
             {
                 "_id": 10,
                 "name": "rs1",
-                "tgt_dataset": "ds1",
             },
             {
                 "_id": 20,
                 "name": "rs2",
-                "tgt_dataset": "ds2",
             }
         ],
         "indexes": [
@@ -437,11 +436,9 @@ fn test_schema_stripped_key() {
         "rels": [
             {
                 "name": "rs1",
-                "tgt_dataset": "ds1",
             },
             {
                 "name": "rs2",
-                "tgt_dataset": "ds2",
             }
         ],
         "indexes": [

@@ -179,13 +179,20 @@ fn alter_dataset_stmt_exec(
                             ds_desc = get_ds_desc!(ctxt, d.ds_id);
                             ds_id = d.ds_id;
                         }
+                        // Should not collide with dataset name
+                        if d.name == ds_desc.name {
+                            return Err(SqlExecError::ExecutionError(format!(
+                                "Relationship name '{}' collides with dataset name",
+                                d.name
+                            )));
+                        }
                         // TBD - should verify rel target exists and has pkey index
                         // Verify if rel already exists
                         for r in &ds_desc.rels {
                             if r.name == d.name {
                                 return Err(SqlExecError::ExecutionError(format!(
-                                    "Failed to get dataset descriptor for dataset ID 0x{:x}",
-                                    ds_id
+                                    "Relationship {} already exists",
+                                    r.name
                                 )));
                             }
                         }
@@ -203,7 +210,8 @@ fn alter_dataset_stmt_exec(
                         ds_desc.rels.push(jbparse::RelDesc {
                             name: d.name.clone(),
                             _id: ctxt.objid_make(MtSchemaType::KeyDataset),
-                            tgt_dataset: d.tgt_ds_name.clone(),
+                            tgt_dataset: d.rs_tgt_name.clone(),
+                            _tgt_id: d.rs_tgt_id,
                         });
                     }
                     DdlOpPb::DropRel => {
@@ -335,7 +343,7 @@ fn alter_dataset_stmt_exec(
     );
     if sts != STS_SUCCESS {
         return Err(SqlExecError::ExecutionError(format!(
-            "Failed to write dataset '{}', sts=0x{:x}",
+            "Failed to update dataset '{}', sts=0x{:x}",
             ds_desc.name, sts
         )));
     }

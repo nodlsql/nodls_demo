@@ -627,7 +627,8 @@ pub fn pretty_print_dsdesc(ds_desc: &jbparse::DatasetDesc) -> String {
     for rel in &ds_desc.rels {
         defs.push(format!(
             "    RELATIONSHIP {}({})",
-            rel.name, rel.tgt_dataset
+            rel.name,
+            rel.tgt_dataset
         ));
     }
 
