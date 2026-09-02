@@ -43,7 +43,7 @@ pub enum HelpTopic {
     RelationshipPredicate,
     RelationshipProjection,
     // Jsonpath
-    Jsonpath,
+    JSONPath,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -83,7 +83,7 @@ impl HelpTopic {
             HelpTopic::RelationshipPredicate => "help relationship predicate",
             HelpTopic::RelationshipProjection => "help relationship projection",
             // Jsonpath
-            HelpTopic::Jsonpath => "help jsonpath",
+            HelpTopic::JSONPath => "help JSONPath",
         }
     }
 
@@ -96,7 +96,7 @@ impl HelpTopic {
                 4 => Some(HelpTopic::Update),
                 5 => Some(HelpTopic::Delete),
                 6 => Some(HelpTopic::Relationships),
-                7 => Some(HelpTopic::Jsonpath),
+                7 => Some(HelpTopic::JSONPath),
                 _ => None,
             },
             HelpTopic::Dataset => match choice {
@@ -127,7 +127,7 @@ impl HelpTopic {
             | HelpTopic::Insert
             | HelpTopic::Update
             | HelpTopic::Delete
-            | HelpTopic::Jsonpath
+            | HelpTopic::JSONPath
             | HelpTopic::CreateDataset
             | HelpTopic::AlterDataset
             | HelpTopic::DropDataset
@@ -160,7 +160,7 @@ fn known_help_topics() -> &'static [(&'static str, HelpTopic)] {
         ("insert", HelpTopic::Insert),
         ("update", HelpTopic::Update),
         ("delete", HelpTopic::Delete),
-        ("jsonpath", HelpTopic::Jsonpath),
+        ("jsonpath", HelpTopic::JSONPath),
         ("relationships", HelpTopic::Relationships),
         ("relationship create", HelpTopic::RelationshipCreate),
         ("relationship drop", HelpTopic::RelationshipDrop),

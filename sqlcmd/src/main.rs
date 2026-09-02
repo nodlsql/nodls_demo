@@ -23,7 +23,7 @@ use crossterm::{
 #[cfg(any(demo, demoprt))]
 use demoexe::DemoContextT as SqlContextT;
 use sqlcontrols;
-#[cfg(prod)]
+#[cfg(any(prod, prodprt))]
 use sqlexe::SqlContextT;
 use sqlexet::SqlExeTrait;
 
@@ -337,7 +337,6 @@ impl CommandPrompt {
             Print("\n"),
             SetForegroundColor(Color::Red),
             MoveToColumn(0),
-            Print("Statement cancelled.\n"),
             ResetColor
         )?;
         self.reset_statement();
@@ -464,11 +463,11 @@ fn main() -> Result<()> {
     #[cfg(demo)]
     {
         println!("Running in demo mode",);
-        println!("You can provide feedback here: https://discord.gg/2bkEjjrat\n");
+        println!("You can profide feedback here: https://discord.gg/2bkEjjrat\n",);
     }
 
     let mut ctxt = SqlContextT::new();
-    #[cfg(prod)]
+    #[cfg(any(prod, prodprt))]
     {
         let args = Args::parse();
         let db = args.database.clone();

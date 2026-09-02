@@ -39,7 +39,8 @@ fn get_default_ddl_pb(ds_name: &str) -> IDdlPb {
         ds_name: ds_name.to_string(),
         ds_id: 0,
         name: "".to_string(),
-        tgt_ds_name: "".to_string(),
+        rs_tgt_name: "".to_string(),
+        rs_tgt_id: 0,
         idx_type: IndexTypePb::Default.into(),
         seg_strs: vec![],
     }
@@ -88,7 +89,8 @@ pub fn ddl_update_rels(
                 let inst = IDdlPb {
                     op: DdlOpPb::CreateRel.into(),
                     name: rel.name.clone(),
-                    tgt_ds_name: rel.tgt_dataset.clone(),
+                    rs_tgt_name: rel.tgt_dataset.clone(),
+                    rs_tgt_id: 0, // to be set by the optimizer
                     ..get_default_ddl_pb(ds_name)
                 };
                 sqlplan.insts.push(SqlInstPb {

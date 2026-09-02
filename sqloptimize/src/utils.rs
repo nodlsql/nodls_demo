@@ -24,14 +24,16 @@ use thiserror::Error;
 use tracing::debug;
 
 // TBD - needs more accurate surrogate check
-pub const MIN_USER_DATASET_ID: u32 = 0x1060;
+pub const MIN_USER_DATASET_ID: u32 = 4098; // nodls pseudo-dataset 0x1002
 
-#[derive(Error, Debug)]
+#[derive(Error, Debug, PartialEq)]
 pub enum SqlTranslateError {
     #[error("Dataset {0} already exists")]
     DatasetAlreadyExists(String),
     #[error("Dataset {0} not found")]
     DatasetNotFound(String),
+    #[error("Primary key not found {0}")]
+    PrimaryKeyNotFound(String),
     #[error("Invalid relationship {0}")]
     InvalidRelationship(String),
     #[error("Inverse relationship not found for datapath {0}")]
@@ -393,17 +395,53 @@ fn compute_ub_for_datapath(
     return None;
 }
 
+pub fn get_pkey_index_for_dataset(ds_name: &String, analyzers: &Vec<DatasetAnalyzer>) -> Option<IIndexPb> {
+    let dataset_analyzer_opt = analyzers.iter().find(|a| a.dataset_desc.name == *ds_name);
+    let dataset_analyzer = match dataset_analyzer_opt {
+        Some(analyzer) => analyzer,
+        None => return None,
+    };
+    for idx_desc in &dataset_analyzer.dataset_desc.indexes {
+        if idx_desc.idx_type == "pkey" {
+            let index_id = idx_desc._id as MtOidT;
+            let index_name = idx_desc.name.clone();
+            let composite_paths = idx_desc.segs.clone();
+            debug!(
+                "Found target dataset PK index for '{}': {:?}",
+                ds_name, idx_desc
+            );
+            let index_type = IndexTypePb::Pkey as i32;
+            // For each path in composite paths, generate a segment with str and vec forms
+            let index_seg_strs = composite_paths.clone();
+            let index_seg_vecs = composite_paths
+                .iter()
+                .map(|p| IndexSegPb {
+                    seg_vec: p.split('.').map(|s| s.to_string()).collect(),
+                })
+                .collect::<Vec<IndexSegPb>>();
+            return Some(IIndexPb {
+                idx_type: index_type,
+                op: IndexOpPb::Scan as i32,
+                ds_name: ds_name.clone(),
+                name: index_name,
+                root_id: index_id,
+                key_val_idx: -1, // filled by optimizer in optimize pass
+                seg_strs: index_seg_strs,
+                seg_vecs: index_seg_vecs,
+                range: None,
+            });
+        }
+    }
+    None
+}
+
 // Get target datasets details for rel
 pub fn build_rel_details_for_reldesc(
     ctxt: &impl SqlExeTrait,
     rel_desc: &jbparse::RelDesc,
 ) -> Option<RelAnalyzer> {
     // Get target dataset id
-    let tgt_ds_id_opt = get_schema_key(ctxt, &rel_desc.tgt_dataset, MtSchemaType::KeyDataset);
-    let tgt_ds_id = match tgt_ds_id_opt {
-        Some(id) => id,
-        None => return None,
-    };
+    let tgt_ds_id = rel_desc._tgt_id as MtOidT;
     // Get target dataset descriptor
     let tgt_dataset_desc_opt = get_dataset_desc(ctxt, tgt_ds_id);
     let tgt_dataset_desc = match tgt_dataset_desc_opt {
@@ -412,7 +450,7 @@ pub fn build_rel_details_for_reldesc(
     };
     // Get target dataset PK index details
     for i in &tgt_dataset_desc.indexes {
-        if i.name == rel_desc.tgt_dataset {
+        if i.idx_type == "pkey" {
             debug!(
                 "Found target dataset PK index for relationship '{}': {:?}",
                 rel_desc.name, i
@@ -421,7 +459,7 @@ pub fn build_rel_details_for_reldesc(
                 rel_name: rel_desc.name.clone(),
                 rel_id: rel_desc._id,
                 inverse: false, // TBD - to revisit
-                tgt_ds_name: rel_desc.tgt_dataset.clone(),
+                tgt_ds_name: tgt_dataset_desc.name.clone(),
                 tgt_ds_id: tgt_ds_id,
                 index_root_id: i._id,
                 pk_segs: i.segs.clone(),
@@ -539,8 +577,8 @@ fn fmt_inst(inst: &SqlInstPb) -> String {
         }
         Some(sql_inst_pb::Inst::Insert(i)) => {
             format!(
-                "IInsert ds_id={} key_val_idx={} val_idxs={:?}",
-                i.ds_id, i.key_val_idx, i.val_idxs
+                "IInsert ds_name={} ds_id={} key_val_idx={} val_idxs={:?}",
+                i.ds_name, i.ds_id, i.key_val_idx, i.val_idxs
             )
         }
         Some(sql_inst_pb::Inst::Delete(d)) => {

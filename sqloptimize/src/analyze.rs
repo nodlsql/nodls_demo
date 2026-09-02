@@ -23,9 +23,23 @@ use tracing::debug;
 
 use crate::utils::{
     build_ds_desc_analyzer, build_rel_details_for_reldesc, compute_index_range_for_datapath,
-    get_index_candidates_for_dataset, get_invrel_for_offset, DatapathAnalyzer, DatasetAnalyzer,
-    IndexAnalyzer, RelAnalyzer, SqlTranslateError, MIN_USER_DATASET_ID,
+    get_index_candidates_for_dataset, get_invrel_for_offset, get_pkey_index_for_dataset,
+    DatapathAnalyzer, DatasetAnalyzer, IndexAnalyzer, RelAnalyzer, SqlTranslateError,
+    MIN_USER_DATASET_ID,
 };
+
+macro_rules! dataset_analyzer_push {
+    ($res: ident, $azers:ident) => {
+        // If None we already have an analyzer pushed
+        if let Some(analyzer) = $res {
+            debug!(
+                "Dataset analyzer for dataset '{}': {:?}",
+                analyzer.dataset_desc.name, analyzer
+            );
+            $azers.push(analyzer);
+        }
+    };
+}
 
 // Expected output:
 // [
@@ -140,6 +154,9 @@ pub fn get_dataset_analyzers(
                 }
             }
             Some(Inst::Dataset(d)) => {
+                if d.name == "dataset" {
+                    continue;
+                }
                 // Note that key_val_idx is valid only for initial datasets in from clause, we fill it in optimizer for rel successor datasets
                 let res = build_dataset_analyzer(
                     ctxt,
@@ -162,7 +179,29 @@ pub fn get_dataset_analyzers(
                 if d.op == DdlOpPb::CreateDs as i32 {
                     create_ds = true;
                 }
-                // For alter dataset we also want to have the dataset analyzer on board, as we need to update the dataset details in the alter dataset inst
+                // For both create and alter check if there is a rel target dataset, add it here
+                if !d.rs_tgt_name.is_empty() {
+                    let res = build_dataset_analyzer(
+                        ctxt,
+                        sqlplan,
+                        &d.rs_tgt_name,
+                        -1, // Set by optimize pass for rel/inverse
+                        &dataset_analyzers,
+                    );
+                    if let Ok(analyzer_opt) = res {
+                        dataset_analyzer_push!(analyzer_opt, dataset_analyzers);
+                        // Make sure there is a primary key for the target dataset
+                        if let None = get_pkey_index_for_dataset(&d.rs_tgt_name, &dataset_analyzers)
+                        {
+                            return Err(SqlTranslateError::PrimaryKeyNotFound(
+                                d.rs_tgt_name.clone(),
+                            ));
+                        }
+                    } else {
+                        return Err(SqlTranslateError::DatasetNotFound(d.rs_tgt_name.clone()));
+                    }
+                }
+                // Get the dataset analyzer if create or alter dataset, if found and create error out
                 let res = build_dataset_analyzer(
                     ctxt,
                     sqlplan,
@@ -174,14 +213,7 @@ pub fn get_dataset_analyzers(
                     if create_ds {
                         return Err(SqlTranslateError::DatasetAlreadyExists(d.ds_name.clone()));
                     }
-                    // If None, we already have an analyzer
-                    if let Some(analyzer) = analyzer_opt {
-                        debug!(
-                            "Dataset analyzer for dataset '{}': {:?}",
-                            d.ds_name, analyzer
-                        );
-                        dataset_analyzers.push(analyzer);
-                    }
+                    dataset_analyzer_push!(analyzer_opt, dataset_analyzers);
                 } else {
                     if !create_ds {
                         return Err(SqlTranslateError::DatasetNotFound(d.ds_name.clone()));

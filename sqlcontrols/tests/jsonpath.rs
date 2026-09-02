@@ -18,7 +18,6 @@ use sqlcontrols::utils::SqlExecError;
 use sqlexet::SqlExeTrait;
 
 #[test]
-#[ignore = "    "]
 fn test_select_stmt_exe() {
     // Inits
     let mut ctxt = demoexe::DemoContextT::new();
