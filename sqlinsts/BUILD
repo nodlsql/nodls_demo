@@ -20,10 +20,12 @@ package(default_visibility = ["//visibility:public"])
 genrule(
     name = "geninsts",
     srcs = ["src/sqlinsts.proto"],
-    outs = ["src/lib.rs"],
+    outs = ["src/sqlinsts.rs"],
     cmd = """
+       # PATH should resolve to protoc-gen-prost executable that is invoked by protoc
+       echo "PATH: $${PATH}"
        /usr/local/bin/protoc --proto_path=sqlinsts/src --prost_out=sqlinsts/src $(location src/sqlinsts.proto)
-       /usr/bin/mv sqlinsts/src/sqlinsts.rs $(RULEDIR)/src/lib.rs
+       /usr/bin/mv sqlinsts/src/sqlinsts/sqlinsts.rs $(RULEDIR)/src/sqlinsts.rs
     """,
 )
 
@@ -35,7 +37,7 @@ rust_doc(
 rust_library(
     name = "lib",
     srcs = [
-        "src/lib.rs",
+        "src/sqlinsts.rs",
     ],
     aliases = aliases(),
     crate_name = "sqlinsts",

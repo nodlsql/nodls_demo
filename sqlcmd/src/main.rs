@@ -464,6 +464,7 @@ fn main() -> Result<()> {
     #[cfg(demo)]
     {
         println!("Running in demo mode",);
+        println!("You can provide feedback here: https://discord.gg/2bkEjjrat\n");
     }
 
     let mut ctxt = SqlContextT::new();
