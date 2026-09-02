@@ -22,8 +22,10 @@ genrule(
     srcs = ["src/tstdata.proto"],
     outs = ["src/tstdata.rs"],
     cmd = """
+       # PATH should resolve to protoc-gen-prost executable that is invoked by protoc
+       echo "PATH: $${PATH}"
        /usr/local/bin/protoc --proto_path=demodata/src --prost_out=demodata/src $(location src/tstdata.proto)
-       mv demodata/src/tstdata.rs $(RULEDIR)/src/tstdata.rs
+       mv demodata/src/tstdata/tstdata.rs $(RULEDIR)/src/tstdata.rs
     """,
 )
 

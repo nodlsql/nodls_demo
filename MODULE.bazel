@@ -21,9 +21,14 @@ module(
 )
 
 # https://github.com/bazelbuild/rules_rust/releases
+
+# If protobuf version is changed to 34.1 and up we get this kind of error as the protobuf
+# C++ compiler is invoked by rules_go:
+# ERROR: .../rules_go+/go/private/rules/cgo.bzl:101:12: The CcInfo symbol has been removed
 bazel_dep(name = "protobuf", version = "33.4")
 bazel_dep(name = "rules_rust", version = "0.73.0")
-bazel_dep(name = "bazel_skylib", version = "1.8.2")
+bazel_dep(name = "bazel_lib", version = "3.7.1")
+bazel_dep(name = "bazel_skylib", version = "1.9.0")
 bazel_dep(name = "rules_cc", version = "0.2.17")
 
 # Rust toolchain
@@ -39,9 +44,8 @@ use_repo(rust, "rust_toolchains")
 
 register_toolchains("@rust_toolchains//:all")
 
-crate = use_extension("@rules_rust//crate_universe:extensions.bzl", "crate")
-
 # External crates
+crate = use_extension("@rules_rust//crate_universe:extensions.bzl", "crate")
 crate.from_cargo(
     name = "crates",
     cargo_lockfile = "//:Cargo.lock",
@@ -50,4 +54,3 @@ crate.from_cargo(
     ],
 )
 use_repo(crate, "crates")
-
