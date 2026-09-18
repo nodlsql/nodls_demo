@@ -10,14 +10,14 @@ message SqlPlanPb {
 }
 
 enum SqlStmtPb {
-  SELECT = 0;
-  CREATE_DATASET = 1;
-  ALTER_DATASET = 2;
-  DELETE_FROM = 3;
-  INSERT_INTO = 4;
-  UPDATE = 5;
-  YANK = 6;
-  UPDATE_REL = 7;
+  SELECT_STMT = 0;
+  CREATE_DS_STMT = 1;
+  DROP_DS_STMT = 2;
+  ALTER_DS_STMT = 3;
+  DESCRIBE_DS_STMT = 4;
+  DELETE_FROM_STMT = 5;
+  INSERT_INTO_STMT = 6;
+  UPDATE_STMT = 7;
 }
 
 message DecimalValuePb {
@@ -57,7 +57,7 @@ message SqlInstPb {
     ISetOptionsPb options = 1;
     IDatasetPb dataset = 2;
     IRelPb rel = 3;
-    IRelUpdPb rel_update = 4;
+    IDdlPb ddl_update = 4;
     IDatapathPb dpath = 5;
     IComparePb comp = 6;
     IProjPb proj = 7;
@@ -65,9 +65,7 @@ message SqlInstPb {
     IInsertPb insert = 9;
     IDeletePb delete = 10;
     IUpdatePb update = 11;
-    IYankPb yank = 12;
-    IExprPb expr = 13;
-    IDdlPb ddl_update = 14;
+    IExprPb expr = 12;
   }
 }
 
@@ -132,43 +130,54 @@ message IRelPb {
   int32 tgt_key_val_idx = 9;   // set successor target entity ids here
 }
 
-enum RelOpPb {
-  INSERT = 0;
-  DELETE = 1;
+enum UpdateOpPb {
+  UPDATE = 0;
+  INSERT = 1;
+  DELETE = 2;
+  CLEAR = 3;
 }
 
-message IRelUpdPb {
+message RelUpdPb {
   string name = 1;
   string ds_name = 2;
-  RelOpPb upd_type = 3;
+  UpdateOpPb upd_op = 3;
   uint32 rel_id = 4;
   string tgt_ds_name = 5;
   uint32 tgt_ds_id = 6;
   uint32 tgt_index_root_id = 7;
-  int32 key_val_idx = 8;                 // stores current obj to update the rel for
-  repeated CompositeRangePb ranges = 9;  // equi fetch successors from PK index
+  repeated CompositeRangePb ranges = 8;  // equi fetch successors from PK index
+}
+  
+message ValRelsUpdPb {
+  int32 key_val_idx = 1;             // current item id inserted (for index maintenance?)
+  int32 val_idx = 2;                 // constant value to insert or -1 if none
+  repeated RelUpdPb relupd = 3;
 }
 
+// Insert (value, list of rels) pairs
 message IInsertPb {
   string ds_name = 1;                // dataset name
   uint32 ds_id = 2;                  // dataset id
-  int32 key_val_idx = 3;             // current item id inserted
-  repeated int32 val_idxs = 4;       // constant values to insert
+  repeated ValRelsUpdPb valsrels = 3;
 }
 
 message IDeletePb {
   int32 key_val_idx = 1;   // current entity to delete
 }
 
-message IUpdatePb {
-  int32 key_val_idx = 1;       // current entity to update
-  repeated int32 val_idxs = 2; // constant values to update with
-  repeated string pathsegs = 3;  // path segs for each updated/deleted field
+// Update one path in update statement
+message PathUpdPb {
+  UpdateOpPb upd_op = 1;         // update, insert or delete field
+  int32 val_idx = 2;             // constant value to update with
+  string pathsegs = 3;           // path for updated/deleted field
 }
 
-message IYankPb {
-  int32 key_val_idx = 1;       // current entity to update
-  repeated string pathsegs = 2;  // path segs for each updated/deleted field
+// Update one value if any in statement, associated rels if any in statement
+message IUpdatePb {
+  int32 key_val_idx = 1;             // current entity to update
+  UpdateOpPb upd_op = 2;             // update or delete field
+  repeated PathUpdPb pathupds = 4;   // path segs for each updated/deleted field
+  repeated ValRelsUpdPb relupds = 5; // Val part not used for update
 }
 
 enum IndexTypePb {
@@ -179,11 +188,11 @@ enum IndexTypePb {
 
 // Not doing <> right now, usage w/o other bounds seems limited.
 message RangePb {
-  int32 lower_bound_val_idx = 1;
-  int32 lower_bound_nb_vals = 2;       // for 'xxx IN(a,b,c)'
-  CompOperatorPb lower_op = 3;         // equal, > or >=
-  int32 upper_bound_val_idx = 4;
-  CompOperatorPb upper_op = 5;         // < or <=
+  int32 lb_val_idx = 1;
+  int32 lb_nb_vals = 2;       // for 'xxx IN(a,b,c)'
+  CompOperatorPb lb_op = 3;   // equal, > or >=
+  int32 ub_val_idx = 4;
+  CompOperatorPb ub_op = 5;   // < or <=
 }
 
 message CompositeRangePb {

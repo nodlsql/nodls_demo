@@ -24,5 +24,9 @@ path = "src/lib.rs"
 
 [dependencies]
 capnp = "0.27"
+indexcapn = { version = "0.1.0", path = "../indexcapn" }
+indexkey = { version = "0.1.0", path = "../indexkey" }
+sqlexet = { version = "0.1.0", path = "../sqlexet" }
+sqlinsts = { version = "0.1.0", path = "../sqlinsts" }
 tracing = "0.1.44"
 # sqlinsts = { version = "0.1.0", path = "../sqlinsts" }

@@ -30,3 +30,7 @@ tracing = "0.1"
 sqlexet = { version = "0.1.0", path = "../sqlexet" }
 sqlinsts = { version = "0.1.0", path = "../sqlinsts" }
 rust_decimal = "1.41.0"
+dupindexkey = { version = "0.1.0", path = "../dupindexkey" }
+indexsrch = { version = "0.1.0", path = "../indexsrch" }
+indexkey = { version = "0.1.0", path = "../indexkey" }
+indexcapn = { version = "0.1.0", path = "../indexcapn" }

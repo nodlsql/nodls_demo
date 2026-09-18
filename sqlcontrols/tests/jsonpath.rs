@@ -28,12 +28,12 @@ fn test_select_stmt_exe() {
         "create dataset jpth",
         "insert into myds values '{\"a\": 2}'",
         "insert into myds values '{\"a\": 3}'",
-        "insert into tgtds values '{}'",
+        "insert into tgtds values '{\"b\": null, \"c\": null}'",
         "insert into tgtds values '{\"b\": \"hi\", \"c\": 1}'",
         "insert into tgtds values '{\"b\": \"there\", \"c\": 2}'",
         "insert into jpth values '{\"i\": [{\"a\": 1}, {\"a\": 2}]}'",
-        "insert into myds.rs values null where a = 2",
-        "insert into myds.rs values ('hi', 1) where a = 2",
+        "update myds insert rs (null, null) where a = 2",
+        "update myds insert rs ('hi', 1) where a = 2",
     ] {
         let res = sqlcontrols::stmt_exec(&mut ctxt, stmt);
         assert!(res.is_ok(), "Failed to execute '{}': {:?}", stmt, res.err());
@@ -45,16 +45,16 @@ fn test_select_stmt_exe() {
             "select $ from dataset where name = 'job'",
             vec!["{\"name\":\"job\"}"],
         ),
-        ("select $ from myds", vec!["{\"a\":2}", "{\"a\":3}"]),
-        ("select $.* from myds", vec!["2", "3"]),
+        ("select $ from myds", vec!["{\"a\":3}", "{\"a\":2}"]),
+        ("select $.* from myds", vec!["3", "2"]),
         // 2 - Rels
-        ("select rs.$.* from myds", vec!["null", "[\"hi\",1]"]),
+        ("select rs.$.* from myds", vec!["[null,null]", "[\"hi\",1]"]),
         (
             "select $, rs.$.* from myds",
             vec![
-                "{\"a\":2}, null",
-                "{\"a\":2}, [\"hi\",1]",
                 "{\"a\":3}, null",
+                "{\"a\":2}, [null,null]",
+                "{\"a\":2}, [\"hi\",1]",
             ],
         ),
         (
@@ -67,7 +67,7 @@ fn test_select_stmt_exe() {
         ),
         (
             "select $.a, rs.$.b, rs.$.c from myds",
-            vec!["2, null, null", "2, hi, 1", "3, null, null"],
+            vec!["3, null, null", "2, null, null", "2, hi, 1"],
         ),
         (
             // TBD - not very useful, check if we want to support it
@@ -89,12 +89,12 @@ fn test_select_stmt_exe() {
         (
             "select d.$.a, t.$.b from myds d, tgtds t",
             vec![
-                "2, null", "2, hi", "2, there", "3, null", "3, hi", "3, there",
+                "3, null", "3, hi", "3, there", "2, null", "2, hi", "2, there",
             ],
         ),
         (
             "select d.$.a, t.$.b from myds d, tgtds t where t.$.b = 'hi'",
-            vec!["2, hi", "3, hi"],
+            vec!["3, hi", "2, hi"],
         ),
         (
             "select d.$.a, t.$.b from myds d, tgtds t where d.$.a = 2",
@@ -133,7 +133,10 @@ fn test_filter_stmt_exec() {
     let suite = vec![
         // Statement, expected rows
         ("select int[0,1]?(@.a >= 2) from jpth", vec!["{\"a\":2}"]),
-        ("select str[*]?(@.b == \"hi\") from jpth", vec!["{\"b\":\"hi\"}"]),
+        (
+            "select str[*]?(@.b == \"hi\") from jpth",
+            vec!["{\"b\":\"hi\"}"],
+        ),
         ("select bl[*]?(@.c == true) from jpth", vec!["{\"c\":true}"]),
         ("select nl[*]?(@.d == null) from jpth", vec!["{\"d\":null}"]),
         ("select num[*]?(@.e >= 12) from jpth", vec!["{\"e\":12.34}"]),
@@ -157,9 +160,22 @@ fn test_invalid_jsonpath() {
 
     let stmt = "select $.*?(@.b == 12.34) from jpth";
     let res = sqlcontrols::stmt_exec(&mut ctxt, stmt);
-    assert!(res.is_err(), "Expected error for '{}', but got {:?}", stmt, res.ok());
-    println!("test_invalid_jsonpath - executing '{}', got res: {:?}", stmt, res);
+    assert!(
+        res.is_err(),
+        "Expected error for '{}', but got {:?}",
+        stmt,
+        res.ok()
+    );
+    println!(
+        "test_invalid_jsonpath - executing '{}', got res: {:?}",
+        stmt, res
+    );
 
     let err = res.err().unwrap();
-    assert!(matches!(err, SqlExecError::TranslateError(_)), "Expected SqlTranslateError error for '{}', but got {:?}", stmt, err);
+    assert!(
+        matches!(err, SqlExecError::AnalyzeError(_)),
+        "Expected SqlTranslateError error for '{}', but got {:?}",
+        stmt,
+        err
+    );
 }

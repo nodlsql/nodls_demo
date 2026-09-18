@@ -16,7 +16,7 @@ use indexcapn::indexkey_capnp::{dup_index_key, index_page, key_component};
 use indexkey;
 use sqlexet::MtOidT;
 
-use sqlinsts::SqlValuePb;
+use sqlinsts::sqlinsts::SqlValuePb;
 use std::cell::RefCell;
 
 use tracing::debug;

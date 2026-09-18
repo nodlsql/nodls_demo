@@ -34,14 +34,6 @@ pub enum HelpTopic {
     Update,
     // Delete
     Delete,
-    // Relationships
-    Relationships,
-    RelationshipCreate,
-    RelationshipDrop,
-    RelationshipInsert,
-    RelationshipDelete,
-    RelationshipPredicate,
-    RelationshipProjection,
     // Jsonpath
     JSONPath,
 }
@@ -74,16 +66,20 @@ impl HelpTopic {
             HelpTopic::Update => "help update",
             // Delete
             HelpTopic::Delete => "help delete",
-            // Relationships
-            HelpTopic::Relationships => "help relationships",
-            HelpTopic::RelationshipCreate => "help relationship create",
-            HelpTopic::RelationshipDrop => "help relationship drop",
-            HelpTopic::RelationshipInsert => "help relationship insert",
-            HelpTopic::RelationshipDelete => "help relationship delete",
-            HelpTopic::RelationshipPredicate => "help relationship predicate",
-            HelpTopic::RelationshipProjection => "help relationship projection",
             // Jsonpath
             HelpTopic::JSONPath => "help JSONPath",
+        }
+    }
+
+    fn parent_topic(self) -> Option<Self> {
+        match self {
+            HelpTopic::Root => None,
+            // Dataset children -> Dataset
+            HelpTopic::CreateDataset | HelpTopic::AlterDataset | HelpTopic::DropDataset | HelpTopic::DescribeDataset => Some(HelpTopic::Dataset),
+            // Select children -> Select
+            HelpTopic::SelectList | HelpTopic::SelectPredicates | HelpTopic::SelectProjection => Some(HelpTopic::Select),
+            // Top-level topics -> Root
+            HelpTopic::Dataset | HelpTopic::Select | HelpTopic::Insert | HelpTopic::Update | HelpTopic::Delete | HelpTopic::JSONPath => Some(HelpTopic::Root),
         }
     }
 
@@ -95,8 +91,7 @@ impl HelpTopic {
                 3 => Some(HelpTopic::Insert),
                 4 => Some(HelpTopic::Update),
                 5 => Some(HelpTopic::Delete),
-                6 => Some(HelpTopic::Relationships),
-                7 => Some(HelpTopic::JSONPath),
+                6 => Some(HelpTopic::JSONPath),
                 _ => None,
             },
             HelpTopic::Dataset => match choice {
@@ -112,15 +107,6 @@ impl HelpTopic {
                 3 => Some(HelpTopic::SelectProjection),
                 _ => None,
             },
-            HelpTopic::Relationships => match choice {
-                1 => Some(HelpTopic::RelationshipCreate),
-                2 => Some(HelpTopic::RelationshipDrop),
-                3 => Some(HelpTopic::RelationshipInsert),
-                4 => Some(HelpTopic::RelationshipDelete),
-                5 => Some(HelpTopic::RelationshipPredicate),
-                6 => Some(HelpTopic::RelationshipProjection),
-                _ => None,
-            },
             HelpTopic::SelectList
             | HelpTopic::SelectPredicates
             | HelpTopic::SelectProjection
@@ -131,13 +117,7 @@ impl HelpTopic {
             | HelpTopic::CreateDataset
             | HelpTopic::AlterDataset
             | HelpTopic::DropDataset
-            | HelpTopic::DescribeDataset
-            | HelpTopic::RelationshipCreate
-            | HelpTopic::RelationshipDrop
-            | HelpTopic::RelationshipInsert
-            | HelpTopic::RelationshipDelete
-            | HelpTopic::RelationshipPredicate
-            | HelpTopic::RelationshipProjection => None,
+            | HelpTopic::DescribeDataset => None,
         }
     }
 }
@@ -161,13 +141,6 @@ fn known_help_topics() -> &'static [(&'static str, HelpTopic)] {
         ("update", HelpTopic::Update),
         ("delete", HelpTopic::Delete),
         ("jsonpath", HelpTopic::JSONPath),
-        ("relationships", HelpTopic::Relationships),
-        ("relationship create", HelpTopic::RelationshipCreate),
-        ("relationship drop", HelpTopic::RelationshipDrop),
-        ("relationship insert", HelpTopic::RelationshipInsert),
-        ("relationship delete", HelpTopic::RelationshipDelete),
-        ("relationship predicate", HelpTopic::RelationshipPredicate),
-        ("relationship projection", HelpTopic::RelationshipProjection),
     ]
 }
 
@@ -207,9 +180,26 @@ pub fn classify_help_input(input: &str, current_topic: Option<HelpTopic>) -> Hel
 
     if let Some(topic) = current_topic {
         if let Ok(choice) = normalized.parse::<usize>() {
+            // Support "0" to go back to parent topic
+            if choice == 0 {
+                if let Some(parent) = topic.parent_topic() {
+                    return HelpAction::Show(parent);
+                }
+                return HelpAction::InvalidSelection;
+            }
+            
+            // Try current topic first
             if let Some(next_topic) = topic.child_for_choice(choice) {
                 return HelpAction::Show(next_topic);
             }
+            
+            // If current topic has no child for this choice, try parent topic
+            if let Some(parent) = topic.parent_topic() {
+                if let Some(next_topic) = parent.child_for_choice(choice) {
+                    return HelpAction::Show(next_topic);
+                }
+            }
+            
             return HelpAction::InvalidSelection;
         }
     }
@@ -332,18 +322,6 @@ mod tests {
             classify_help_input("help jsonpath", None),
             HelpAction::Show(HelpTopic::Jsonpath)
         );
-        assert_eq!(
-            classify_help_input("help relationship create", None),
-            HelpAction::Show(HelpTopic::CreateRelationship)
-        );
-        assert_eq!(
-            classify_help_input("help relationship alter", None),
-            HelpAction::Show(HelpTopic::AlterRelationship)
-        );
-        assert_eq!(
-            classify_help_input("help relationship drop", None),
-            HelpAction::Show(HelpTopic::DropRelationship)
-        );
     }
 
     #[test]
@@ -368,5 +346,48 @@ mod tests {
             classify_help_input("help d", None),
             HelpAction::Show(HelpTopic::Delete)
         );
+    }
+
+    #[test]
+    fn zero_goes_back_to_parent_topic() {
+        // From SelectList -> Select (parent)
+        assert_eq!(
+            classify_help_input("0", Some(HelpTopic::SelectList)),
+            HelpAction::Show(HelpTopic::Select)
+        );
+        // From Select -> Root (parent)
+        assert_eq!(
+            classify_help_input("0", Some(HelpTopic::Select)),
+            HelpAction::Show(HelpTopic::Root)
+        );
+        // From AlterDataset -> Dataset (parent)
+        assert_eq!(
+            classify_help_input("0", Some(HelpTopic::AlterDataset)),
+            HelpAction::Show(HelpTopic::Dataset)
+        );
+        // From Root -> no parent
+        assert_eq!(
+            classify_help_input("0", Some(HelpTopic::Root)),
+            HelpAction::InvalidSelection
+        );
+    }
+
+    #[test]
+    fn numeric_navigation_maintains_parent_context() {
+        // Start at Select, navigate to SelectList (1)
+        let action = classify_help_input("1", Some(HelpTopic::Select));
+        assert_eq!(action, HelpAction::Show(HelpTopic::SelectList));
+        
+        // From SelectList, typing 2 should navigate to SelectPredicates (sibling via parent)
+        let action2 = classify_help_input("2", Some(HelpTopic::SelectList));
+        assert_eq!(action2, HelpAction::Show(HelpTopic::SelectPredicates));
+        
+        // From SelectPredicates, typing 3 should navigate to SelectProjection (sibling via parent)
+        let action3 = classify_help_input("3", Some(HelpTopic::SelectPredicates));
+        assert_eq!(action3, HelpAction::Show(HelpTopic::SelectProjection));
+        
+        // From SelectProjection, go back (0) to Select
+        let back_action = classify_help_input("0", Some(HelpTopic::SelectProjection));
+        assert_eq!(back_action, HelpAction::Show(HelpTopic::Select));
     }
 }

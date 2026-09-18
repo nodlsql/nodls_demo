@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use sqlparser::ast;
-use sqlparser::{parse_stmt, SqlParseError};
+use sqlparse::ast;
+use sqlparse::parse_stmt;
 
 #[test]
 fn test_jpath_expressions() {

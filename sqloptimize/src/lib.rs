@@ -13,7 +13,9 @@
 // limitations under the License.
 
 use sqlexet::SqlExeTrait;
-use sqlinsts::{sql_inst_pb, EvalPhasePb, IDatapathPb, IRelPb, SqlInstPb, SqlPlanPb, SqlValuePb};
+use sqlinsts::sqlinsts::{
+    sql_inst_pb, EvalPhasePb, IDatapathPb, IRelPb, SqlInstPb, SqlPlanPb, SqlValuePb,
+};
 use std::collections::HashMap;
 use std::vec;
 use tracing::debug;
@@ -21,7 +23,7 @@ use tracing::debug;
 pub mod analyze;
 pub mod iutils;
 pub mod utils;
-use utils::{get_invrel_for_offset, pretty_print_plan, DatasetAnalyzer, SqlTranslateError};
+use utils::{get_invrel_for_offset, DatasetAnalyzer, SqlAnalyzeError};
 
 // Match the dataset name in from list to get the key_val_idx
 macro_rules! ds_key_val_idx {
@@ -32,7 +34,7 @@ macro_rules! ds_key_val_idx {
             // If only one ds in from list, pick it up
             *$m.values().next().unwrap()
         } else {
-            return Err(SqlTranslateError::AmbiguousDatapath($d.clone()));
+            return Err(SqlAnalyzeError::AmbiguousDatapath($d.clone()));
         }
     };
 }
@@ -40,13 +42,12 @@ macro_rules! ds_key_val_idx {
 pub fn optimize_plan(
     ctxt: &mut impl SqlExeTrait,
     sqlplan: &mut SqlPlanPb,
-) -> Result<(), SqlTranslateError> {
+) -> Result<(), SqlAnalyzeError> {
     let analyzers = analyze::get_dataset_analyzers(ctxt, sqlplan)?;
     // Optimization logic here
     let mut optimized_insts = Vec::new();
     let added_values = vec![];
     debug!("Analyzers: {:#?}", analyzers);
-    debug!("Initial SQL Plan: {}", pretty_print_plan(sqlplan));
 
     // Hashmap of dataset name to key_val_idx
     let mut key_val_idx_map: HashMap<String, i32> = HashMap::new();
@@ -66,7 +67,7 @@ pub fn optimize_plan(
                 // Push idataset or iindex if applicable, or both for drop dataset.
                 // There is nothing to do for rels, inverse rels should clear with GC.
                 // TBD - everything could be cleaned up by GC, just the dataset desc needs to clear.
-                iutils::push_idataset(&analyzers, &d, d.key_val_idx, &mut optimized_insts);
+                iutils::push_idataset(ctxt, &analyzers, &d, d.key_val_idx, &mut optimized_insts);
             }
             Some(sql_inst_pb::Inst::Dpath(d)) => {
                 // Analyzers are empty for statements like 'select 1'
@@ -78,7 +79,7 @@ pub fn optimize_plan(
                     };
                     let path_str = jbparse::path_to_jbpath(&d.pathsegs.join("."), &d.jsonpath);
                     jbparse::check_json_path(&path_str)
-                        .map_err(|e| SqlTranslateError::InvalidJsonPath(e))?;
+                        .map_err(|e| SqlAnalyzeError::InvalidJsonPath(e))?;
                     optimized_insts.push(SqlInstPb {
                         inst: Some(sql_inst_pb::Inst::Dpath(IDatapathPb {
                             phase: eval_phase,
@@ -183,7 +184,7 @@ pub fn optimize_plan(
                 // 4 - No more rel found for this path segment, fix the path and generate the datapath inst
                 let path_str = jbparse::path_to_jbpath(&new_pathsegs.join("."), &d.jsonpath);
                 jbparse::check_json_path(&path_str)
-                    .map_err(|e| SqlTranslateError::InvalidJsonPath(e))?;
+                    .map_err(|e| SqlAnalyzeError::InvalidJsonPath(e))?;
                 iutils::push_idatapath(
                     &analyzers,
                     &d,
@@ -198,22 +199,22 @@ pub fn optimize_plan(
             Some(sql_inst_pb::Inst::Update(u)) => {
                 // Only one dataset expected
                 let key_val_idx = ds_key_val_idx!(key_val_idx_map, &"".to_string());
-                iutils::push_iupdate(&analyzers, &u, key_val_idx, &mut optimized_insts);
-            }
-            Some(sql_inst_pb::Inst::Yank(y)) => {
-                // Only one dataset expected
-                let key_val_idx = ds_key_val_idx!(key_val_idx_map, &"".to_string());
-                iutils::push_iyank(&analyzers, &y, key_val_idx, &mut optimized_insts);
-            }
-            Some(sql_inst_pb::Inst::RelUpdate(r)) => {
-                // Only one dataset expected
-                let key_val_idx = ds_key_val_idx!(key_val_idx_map, &"".to_string());
-                iutils::push_irelupd(&analyzers[0], &r, key_val_idx, &mut optimized_insts);
+                let vrels = utils::vrels_target_details(&analyzers[0], &u.relupds);
+                if vrels.is_err() {
+                    return Err(vrels.err().unwrap());
+                }
+                let vrels = vrels.unwrap();
+                iutils::push_iupdate(&analyzers, vrels, &u, key_val_idx, &mut optimized_insts);
             }
             Some(sql_inst_pb::Inst::Insert(i)) => {
                 // Only one dataset expected
                 let key_val_idx = 0;
-                iutils::push_iinsert(&analyzers[0], &i, key_val_idx, &mut optimized_insts);
+                let vrels = utils::vrels_target_details(&analyzers[0], &i.valsrels);
+                if vrels.is_err() {
+                    return Err(vrels.err().unwrap());
+                }
+                let vrels = vrels.unwrap();
+                iutils::push_iinsert(&analyzers[0], &i, vrels, key_val_idx, &mut optimized_insts);
             }
             Some(sql_inst_pb::Inst::Delete(d)) => {
                 // Only one dataset expected
@@ -291,6 +292,7 @@ pub fn build_rel_inst(
     None
 }
 
+// Get rel from path for select predicates and projection
 pub fn get_matched_rel_inst_for_relpath(
     parent_path: &Vec<String>,
     inverse_tgt: &Option<String>,
@@ -323,20 +325,4 @@ pub fn get_matched_rel_inst_for_relpath(
         }
     }
     None
-}
-
-// TBD - move it back to sqlplan since we can't use it here because of
-// mut borrow of sqlplan. Best would be to make it a macro and use it in both places.
-pub fn add_value(
-    sqlplan: &mut sqlinsts::SqlPlanPb,
-    is_constant: bool,
-    data: Option<sqlinsts::sql_value_pb::Data>,
-) -> i32 {
-    let val_idx = sqlplan.max_value_idx;
-    sqlplan.values.push(SqlValuePb {
-        is_constant: is_constant,
-        data: data,
-    });
-    sqlplan.max_value_idx += 1;
-    val_idx
 }

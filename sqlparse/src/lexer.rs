@@ -30,7 +30,9 @@ pub enum Tok {
     Index,
     Insert,
     Delete,
+    Remove,
     Update,
+    Clear,
     Set,
     Into,
     Values,
@@ -73,6 +75,7 @@ pub enum Tok {
     Integer(String),
     SingleQuotedString(String),
     DoubleQuotedString(String),
+    LexError(String),
     Eof,
 }
 
@@ -254,7 +257,9 @@ impl<'input> Iterator for Lexer<'input> {
                     "index" => Tok::Index,
                     "insert" => Tok::Insert,
                     "delete" => Tok::Delete,
+                    "remove" => Tok::Remove,
                     "update" => Tok::Update,
+                    "clear" => Tok::Clear,
                     "set" => Tok::Set,
                     "into" => Tok::Into,
                     "values" => Tok::Values,
@@ -295,13 +300,12 @@ impl<'input> Iterator for Lexer<'input> {
             }
             Some(other) => {
                 // Unknown character/token - treat as identifier of single char to allow error handling in parser
-                Tok::Ident(other.to_string())
+                Tok::LexError(other.to_string())
             }
         };
 
         let end = self.offset;
         // debug printing removed for quieter test output
-
         if tok == Tok::Eof {
             None
         } else {

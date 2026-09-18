@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use sqlinsts::{
+use sqlinsts::sqlinsts::{
     sql_value_pb::Data, CompOperatorPb, EvalPhasePb, IComparePb, IDatapathPb, IIndexPb, IndexOpPb,
     IndexSegPb, IndexTypePb, SqlValuePb,
 };
@@ -71,7 +71,7 @@ fn test_compute_index_range_for_datapath() {
         right_val_cnt: 1,
     }];
     // Expected:
-    // RangePb { lower_bound_val_idx: 2, lower_op: Eq, upper_bound_val_idx: 2, upper_op: Eq }
+    // RangePb { lb_val_idx: 2, lb_op: Eq, ub_val_idx: 2, ub_op: Eq }
     let range_opt = compute_index_range_for_datapath(
         &segments[0],
         &dpth_inst,
@@ -82,10 +82,10 @@ fn test_compute_index_range_for_datapath() {
     println!("Computed equi range: {:?}", range_opt);
     assert!(range_opt.is_some());
     let range = range_opt.unwrap();
-    assert_eq!(range.lower_bound_val_idx, 2);
-    assert_eq!(range.upper_bound_val_idx, -1);
-    assert_eq!(range.lower_op, CompOperatorPb::Eq as i32);
-    assert_eq!(range.upper_op, CompOperatorPb::Eq as i32);
+    assert_eq!(range.lb_val_idx, 2);
+    assert_eq!(range.ub_val_idx, -1);
+    assert_eq!(range.lb_op, CompOperatorPb::Eq as i32);
+    assert_eq!(range.ub_op, CompOperatorPb::Eq as i32);
 
     // a > 22 AND a < 33
     let comp_insts = vec![
@@ -103,7 +103,7 @@ fn test_compute_index_range_for_datapath() {
         },
     ];
     // Expected:
-    // RangePb { lower_bound_val_idx: -1, lower_op: Eq, upper_bound_val_idx: 2, upper_op: Lt }
+    // RangePb { lb_val_idx: -1, lb_op: Eq, ub_val_idx: 2, ub_op: Lt }
     let range_opt = compute_index_range_for_datapath(
         &segments[0],
         &dpth_inst,
@@ -114,10 +114,10 @@ fn test_compute_index_range_for_datapath() {
     println!("Computed bounded range: {:?}", range_opt);
     assert!(range_opt.is_some());
     let range = range_opt.unwrap();
-    assert_eq!(range.lower_bound_val_idx, 2);
-    assert_eq!(range.upper_bound_val_idx, 3);
-    assert_eq!(range.lower_op, CompOperatorPb::Gt as i32);
-    assert_eq!(range.upper_op, CompOperatorPb::Lt as i32);
+    assert_eq!(range.lb_val_idx, 2);
+    assert_eq!(range.ub_val_idx, 3);
+    assert_eq!(range.lb_op, CompOperatorPb::Gt as i32);
+    assert_eq!(range.ub_op, CompOperatorPb::Lt as i32);
 
     let comp_insts = vec![
         IComparePb {
@@ -140,7 +140,7 @@ fn test_compute_index_range_for_datapath() {
         },
     ];
     // Expected:
-    // { lower_bound_val_idx: 2, lower_op: Eq, upper_bound_val_idx: -1, upper_op: Eq }
+    // { lb_val_idx: 2, lb_op: Eq, ub_val_idx: -1, ub_op: Eq }
     let range_opt = compute_index_range_for_datapath(
         &segments[0],
         &dpth_inst,
@@ -152,10 +152,10 @@ fn test_compute_index_range_for_datapath() {
     assert!(range_opt.is_some());
     let range = range_opt.unwrap();
     // Verify equi match supersedes other predicates
-    assert_eq!(range.lower_bound_val_idx, 2);
-    assert_eq!(range.upper_bound_val_idx, -1);
-    assert_eq!(range.lower_op, CompOperatorPb::Eq as i32);
-    assert_eq!(range.upper_op, CompOperatorPb::Eq as i32);
+    assert_eq!(range.lb_val_idx, 2);
+    assert_eq!(range.ub_val_idx, -1);
+    assert_eq!(range.lb_op, CompOperatorPb::Eq as i32);
+    assert_eq!(range.ub_op, CompOperatorPb::Eq as i32);
 
     // Segment doesn't match datapath path, should return None
     let range_opt = compute_index_range_for_datapath(
@@ -183,7 +183,7 @@ fn test_compute_index_range_for_datapath() {
         },
     ];
     // Expected:
-    // { lower_bound_val_idx: 2, lower_op: Eq, upper_bound_val_idx: -1, upper_op: Eq }
+    // { lb_val_idx: 2, lb_op: Eq, ub_val_idx: -1, ub_op: Eq }
     let range_opt = compute_index_range_for_datapath(
         &segments[0],
         &dpth_inst,
@@ -195,11 +195,11 @@ fn test_compute_index_range_for_datapath() {
     assert!(range_opt.is_some());
     let range = range_opt.unwrap();
     // Verify equi match supersedes other predicates
-    assert_eq!(range.lower_bound_val_idx, 2);
-    assert_eq!(range.lower_bound_nb_vals, 3);
-    assert_eq!(range.upper_bound_val_idx, -1);
-    assert_eq!(range.lower_op, CompOperatorPb::In as i32);
-    assert_eq!(range.upper_op, CompOperatorPb::Eq as i32);
+    assert_eq!(range.lb_val_idx, 2);
+    assert_eq!(range.lb_nb_vals, 3);
+    assert_eq!(range.ub_val_idx, -1);
+    assert_eq!(range.lb_op, CompOperatorPb::In as i32);
+    assert_eq!(range.ub_op, CompOperatorPb::Eq as i32);
 }
 
 #[test]
@@ -329,10 +329,10 @@ pub fn test_compute_index_range_for_index() {
     assert!(!ranges.is_empty());
     assert_eq!(ranges.len(), 1);
     let range = &ranges[0];
-    assert_eq!(range.lower_bound_val_idx, 2);
-    assert_eq!(range.upper_bound_val_idx, -1);
-    assert_eq!(range.lower_op, CompOperatorPb::Eq as i32);
-    assert_eq!(range.upper_op, CompOperatorPb::Eq as i32);
+    assert_eq!(range.lb_val_idx, 2);
+    assert_eq!(range.ub_val_idx, -1);
+    assert_eq!(range.lb_op, CompOperatorPb::Eq as i32);
+    assert_eq!(range.ub_op, CompOperatorPb::Eq as i32);
 
     // 3 - both segments match
     let iindex = IIndexPb {
@@ -358,15 +358,15 @@ pub fn test_compute_index_range_for_index() {
     assert!(!ranges.is_empty());
     assert_eq!(ranges.len(), 2);
     let range = &ranges[0];
-    assert_eq!(range.lower_bound_val_idx, 2); // Same as before
-    assert_eq!(range.upper_bound_val_idx, -1);
-    assert_eq!(range.lower_op, CompOperatorPb::Eq as i32);
-    assert_eq!(range.upper_op, CompOperatorPb::Eq as i32);
+    assert_eq!(range.lb_val_idx, 2); // Same as before
+    assert_eq!(range.ub_val_idx, -1);
+    assert_eq!(range.lb_op, CompOperatorPb::Eq as i32);
+    assert_eq!(range.ub_op, CompOperatorPb::Eq as i32);
     let range = &ranges[1];
-    assert_eq!(range.lower_bound_val_idx, 5);
-    assert_eq!(range.upper_bound_val_idx, -1);
-    assert_eq!(range.lower_op, CompOperatorPb::Eq as i32);
-    assert_eq!(range.upper_op, CompOperatorPb::Eq as i32);
+    assert_eq!(range.lb_val_idx, 5);
+    assert_eq!(range.ub_val_idx, -1);
+    assert_eq!(range.lb_op, CompOperatorPb::Eq as i32);
+    assert_eq!(range.ub_op, CompOperatorPb::Eq as i32);
 
     // 4 - present the datapath the other way round
     let dpth_analyzers = vec![
@@ -421,15 +421,15 @@ pub fn test_compute_index_range_for_index() {
     assert!(!ranges.is_empty());
     assert_eq!(ranges.len(), 2);
     let range = &ranges[0];
-    assert_eq!(range.lower_bound_val_idx, 2); // Same as before
-    assert_eq!(range.upper_bound_val_idx, -1);
-    assert_eq!(range.lower_op, CompOperatorPb::Eq as i32);
-    assert_eq!(range.upper_op, CompOperatorPb::Eq as i32);
+    assert_eq!(range.lb_val_idx, 2); // Same as before
+    assert_eq!(range.ub_val_idx, -1);
+    assert_eq!(range.lb_op, CompOperatorPb::Eq as i32);
+    assert_eq!(range.ub_op, CompOperatorPb::Eq as i32);
     let range = &ranges[1];
-    assert_eq!(range.lower_bound_val_idx, 5);
-    assert_eq!(range.upper_bound_val_idx, -1);
-    assert_eq!(range.lower_op, CompOperatorPb::Eq as i32);
-    assert_eq!(range.upper_op, CompOperatorPb::Eq as i32);
+    assert_eq!(range.lb_val_idx, 5);
+    assert_eq!(range.ub_val_idx, -1);
+    assert_eq!(range.lb_op, CompOperatorPb::Eq as i32);
+    assert_eq!(range.ub_op, CompOperatorPb::Eq as i32);
 
     // 5 - first segment with GT comparison, 2nd segment with EQ comparison, should return range for first segment only
     let dpth_analyzers = vec![
@@ -484,15 +484,15 @@ pub fn test_compute_index_range_for_index() {
     assert!(!ranges.is_empty());
     assert_eq!(ranges.len(), 2);
     let range = &ranges[0];
-    assert_eq!(range.lower_bound_val_idx, 2); // Same as before
-    assert_eq!(range.upper_bound_val_idx, -1);
-    assert_eq!(range.lower_op, CompOperatorPb::Gt as i32);
-    assert_eq!(range.upper_op, CompOperatorPb::Eq as i32);
+    assert_eq!(range.lb_val_idx, 2); // Same as before
+    assert_eq!(range.ub_val_idx, -1);
+    assert_eq!(range.lb_op, CompOperatorPb::Gt as i32);
+    assert_eq!(range.ub_op, CompOperatorPb::Eq as i32);
     let range = &ranges[1];
-    assert_eq!(range.lower_bound_val_idx, 5); // Same as before
-    assert_eq!(range.upper_bound_val_idx, -1);
-    assert_eq!(range.lower_op, CompOperatorPb::Eq as i32);
-    assert_eq!(range.upper_op, CompOperatorPb::Eq as i32);
+    assert_eq!(range.lb_val_idx, 5); // Same as before
+    assert_eq!(range.ub_val_idx, -1);
+    assert_eq!(range.lb_op, CompOperatorPb::Eq as i32);
+    assert_eq!(range.ub_op, CompOperatorPb::Eq as i32);
 }
 
 #[test]

@@ -43,7 +43,7 @@ fn test_update_stmt_exe() {
         ),
         // 2 - Update
         (
-            vec!["update tgtds set c = 22, b = 'hii' where c = 11"],
+            vec!["update tgtds set c = 22 b = 'hii' where c = 11"],
             "select * from tgtds",
             vec![
                 "{}",

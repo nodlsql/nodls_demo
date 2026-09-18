@@ -13,37 +13,38 @@
 # limitations under the License.
 
 load("@crates//:defs.bzl", "aliases", "all_crate_deps")
+load("@rules_rust//cargo:defs.bzl", "cargo_build_script")
 load("@rules_rust//rust:defs.bzl", "rust_doc", "rust_library", "rust_test")
 
 package(default_visibility = ["//visibility:public"])
 
-genrule(
-    name = "generate_insts",
-    srcs = ["src/tstdata.proto"],
-    outs = ["src/tstdata.rs"],
-    cmd = """
-       # PATH should resolve to protoc-gen-prost executable that is invoked by protoc
-       echo "PATH: $${PATH}"
-       /usr/local/bin/protoc --proto_path=demodata/src --prost_out=demodata/src $(location src/tstdata.proto)
-       mv demodata/src/tstdata/tstdata.rs $(RULEDIR)/src/tstdata.rs
-    """,
+cargo_build_script(
+    name = "build_script",
+    srcs = ["build.rs"],
+    data = ["src/tstdata.proto"],
+    edition = "2021",
+    deps = all_crate_deps(
+        build = True,
+    ),
 )
 
 rust_doc(
     name = "doc",
     crate = ":lib",
+    rustdoc_flags = ["--cfg=bazel_build"],
 )
 
 rust_library(
     name = "lib",
     srcs = [
         "src/lib.rs",
-        "src/tstdata.rs",
     ],
     aliases = aliases(),
     crate_name = "demodata",
+    rustc_flags = ["--cfg=bazel_build"],
     visibility = ["//visibility:public"],
     deps = [
+        ":build_script",
     ] + all_crate_deps(
         normal = True,
     ),

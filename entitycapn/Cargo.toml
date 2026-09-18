@@ -17,6 +17,7 @@ name = "entitycapn"
 version = "0.1.0"
 edition = "2021"
 publish = false
+build = "build.rs"
 
 # A dummy lib is required to let Bazel generate BUILD files from a Cargo.toml file.
 [lib]
@@ -24,3 +25,9 @@ path = "src/lib.rs"
 
 [dependencies]
 capnp = "0.27"
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(bazel_build)'] }
+
+[build-dependencies]
+capnpc = "0.27"

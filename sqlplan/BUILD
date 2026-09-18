@@ -35,7 +35,6 @@ rust_library(
         "//demoexe:lib",
         "//sqlexet:lib",
         "//sqlinsts:lib",
-        "//sqloptimize:lib",
         "//sqlparse:lib",
     ] + all_crate_deps(
         normal = True,
@@ -49,7 +48,6 @@ rust_test(
     deps = [
         ":lib",
         "//sqlinsts:lib",
-        "//sqloptimize:lib",
         "//sqlparse:lib",
     ] + all_crate_deps(
         normal = True,

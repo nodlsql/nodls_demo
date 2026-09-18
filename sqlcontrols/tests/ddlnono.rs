@@ -16,7 +16,7 @@
 use prost::Message;
 use sqlcontrols::utils::SqlExecError;
 use sqlexet::SqlExeTrait;
-use sqloptimize::utils::SqlTranslateError;
+use sqloptimize::utils::SqlAnalyzeError;
 
 #[test]
 fn test_ddl_translate_err() {
@@ -28,13 +28,13 @@ fn test_ddl_translate_err() {
             // 1. Target ds not found
             vec![],
             "create dataset myds relationship rs(tgtds)",
-            SqlTranslateError::DatasetNotFound("tgtds".to_string()),
+            SqlAnalyzeError::DatasetNotFound("tgtds".to_string()),
         ),
         (
             // 2. Primary key not found for target ds
             vec!["create dataset tgtds"],
             "create dataset myds relationship rs(tgtds)",
-            SqlTranslateError::PrimaryKeyNotFound("tgtds".to_string()),
+            SqlAnalyzeError::PrimaryKeyNotFound("tgtds".to_string()),
         ),
     ] {
         println!("test_ddl_translate_err - executing '{}'", stmt);
@@ -46,7 +46,7 @@ fn test_ddl_translate_err() {
         match res {
             Ok(_) => panic!("test_ddl_translate_err - executed '{}'", stmt),
             Err(e) => match e {
-                SqlExecError::TranslateError(t) => {
+                SqlExecError::AnalyzeError(t) => {
                     println!(
                         "test_ddl_translate_err - error executing '{}': {:?}",
                         stmt, t
@@ -75,7 +75,7 @@ fn test_ddl_exec_err() {
                 "create dataset myds relationship rs(tgtds)",
             ],
             "alter dataset myds add relationship rs(tgtds)",
-            "Relationship rs already exists",
+            "Relationship 'rs' already exists in dataset 'myds'",
         ),
         (
             // 2. Rel not found

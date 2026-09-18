@@ -298,11 +298,11 @@ rust_test(
 )
 
 rust_test(
-    name = "yank",
+    name = "delpath",
     srcs = [
-        "tests/yank.rs",
+        "tests/delpath.rs",
     ],
-    crate_root = "tests/yank.rs",
+    crate_root = "tests/delpath.rs",
     deps = [
         ":lib",
         "//demoexe:lib",

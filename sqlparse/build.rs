@@ -12,6 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub mod indexkey_capnp {
-    include!(concat!(env!("OUT_DIR"), "/indexkey_capnp.rs"));
+fn main() {
+    let out_dir = std::env::var("OUT_DIR").unwrap();
+    lalrpop::Configuration::new()
+        .set_in_dir("src")
+        .set_out_dir(&out_dir)
+        .process()
+        .unwrap();
 }

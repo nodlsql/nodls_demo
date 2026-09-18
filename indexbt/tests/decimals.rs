@@ -14,7 +14,7 @@
 
 use indexcapn::indexkey_capnp::index_page;
 use rust_decimal::Decimal;
-use sqlinsts::{sql_value_pb::Data, CompOperatorPb, DecimalValuePb, SqlValuePb};
+use sqlinsts::sqlinsts::{sql_value_pb::Data, CompOperatorPb, DecimalValuePb, SqlValuePb};
 use std::cell::RefCell;
 use std::vec;
 

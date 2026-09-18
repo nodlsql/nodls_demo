@@ -26,11 +26,11 @@ fn test_select_stmt_exe() {
         "create dataset myds relationship rs(tgtds)",
         "insert into myds values '{\"a\": 2}'",
         "insert into myds values '{\"a\": 3}'",
-        "insert into tgtds values '{}'",
+        "insert into tgtds values '{\"b\": null, \"c\": null}'",
         "insert into tgtds values '{\"b\": \"hi\", \"c\": 1}'",
         "insert into tgtds values '{\"b\": \"there\", \"c\": 2}'",
-        "insert into myds.rs values null where a = 2",
-        "insert into myds.rs values ('hi', 1) where a = 2",
+        "update myds insert rs (null, null) where a = 2",
+        "update myds insert rs ('hi', 1) where a = 2",
     ] {
         let res = sqlcontrols::stmt_exec(&mut ctxt, stmt);
         assert!(res.is_ok(), "Failed to execute '{}': {:?}", stmt, res.err());
@@ -44,20 +44,23 @@ fn test_select_stmt_exe() {
         ),
         (
             "select * from myds",
-            vec!["{\"a\":2,\"rs\":[\"null null\",\"hi 1\"]}", "{\"a\":3}"],
+            vec!["{\"a\":3}", "{\"a\":2,\"rs\":[\"null null\",\"hi 1\"]}"],
         ),
         // 2 - Rels
         (
             "select rs.* from myds",
-            vec!["{}", "{\"b\":\"hi\",\"c\":1}"],
+            vec!["{\"b\":null,\"c\":null}", "{\"b\":\"hi\",\"c\":1}"],
         ),
-        ("select rs from myds", vec!["{}", "{\"b\":\"hi\",\"c\":1}"]),
+        (
+            "select rs from myds",
+            vec!["{\"b\":null,\"c\":null}", "{\"b\":\"hi\",\"c\":1}"],
+        ),
         (
             "select *, rs.* from myds",
             vec![
-                "{\"a\":2,\"rs\":[\"null null\",\"hi 1\"]}, {}",
-                "{\"a\":2,\"rs\":[\"null null\",\"hi 1\"]}, {\"b\":\"hi\",\"c\":1}",
                 "{\"a\":3}, null",
+                "{\"a\":2,\"rs\":[\"null null\",\"hi 1\"]}, {\"b\":null,\"c\":null}",
+                "{\"a\":2,\"rs\":[\"null null\",\"hi 1\"]}, {\"b\":\"hi\",\"c\":1}",
             ],
         ),
         (
@@ -66,7 +69,7 @@ fn test_select_stmt_exe() {
         ),
         (
             "select a, rs.b, rs.c from myds",
-            vec!["2, null, null", "2, hi, 1", "3, null, null"],
+            vec!["3, null, null", "2, null, null", "2, hi, 1"],
         ),
         (
             // TBD - not very useful, check if we want to support it
@@ -85,12 +88,12 @@ fn test_select_stmt_exe() {
         (
             "select d.a, t.b from myds d, tgtds t",
             vec![
-                "2, null", "2, hi", "2, there", "3, null", "3, hi", "3, there",
+                "3, null", "3, hi", "3, there", "2, null", "2, hi", "2, there",
             ],
         ),
         (
             "select d.a, t.b from myds d, tgtds t where t.b = 'hi'",
-            vec!["2, hi", "3, hi"],
+            vec!["3, hi", "2, hi"],
         ),
         (
             "select d.a, t.b from myds d, tgtds t where d.a = 2",
@@ -116,11 +119,11 @@ fn test_invrel_stmt_exe() {
         "create dataset myds relationship rs(tgtds)",
         "insert into myds values '{\"a\": 2}'",
         "insert into myds values '{\"a\": 3}'",
-        "insert into tgtds values '{}'",
+        "insert into tgtds values '{\"b\": null, \"c\": null}'",
         "insert into tgtds values '{\"b\": \"hi\", \"c\": 1}'",
         "insert into tgtds values '{\"b\": \"there\", \"c\": 2}'",
-        "insert into myds.rs values null where a = 2",
-        "insert into myds.rs values ('hi', 1) where a = 2",
+        "update myds insert rs (null, null) where a = 2",
+        "update myds insert rs ('hi', 1) where a = 2",
     ] {
         let res = sqlcontrols::stmt_exec(&mut ctxt, stmt);
         assert!(
@@ -135,7 +138,7 @@ fn test_invrel_stmt_exe() {
         (
             "select *, inverse(myds.rs).* from tgtds",
             vec![
-                "{}, {\"a\":2,\"rs\":[\"null null\",\"hi 1\"]}",
+                "{\"b\":null,\"c\":null}, {\"a\":2,\"rs\":[\"null null\",\"hi 1\"]}",
                 "{\"b\":\"hi\",\"c\":1}, {\"a\":2,\"rs\":[\"null null\",\"hi 1\"]}",
                 "{\"b\":\"there\",\"c\":2}, null",
             ],
@@ -158,7 +161,10 @@ fn test_invrel_stmt_exe() {
         ),
         (
             "select b, inverse(myds.rs).a, inverse(myds.rs).rs.* from tgtds where c = 1",
-            vec!["hi, 2, {}", "hi, 2, {\"b\":\"hi\",\"c\":1}"],
+            vec![
+                "hi, 2, {\"b\":null,\"c\":null}",
+                "hi, 2, {\"b\":\"hi\",\"c\":1}",
+            ],
         ),
     ];
     for (stmt, expected_rows) in suite {

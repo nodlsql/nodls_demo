@@ -12,6 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub mod indexkey_capnp {
-    include!(concat!(env!("OUT_DIR"), "/indexkey_capnp.rs"));
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let out_dir = std::env::var("OUT_DIR")?;
+    prost_build::Config::new()
+        .out_dir(&out_dir)
+        .compile_protos(&["src/tstdata.proto"], &["src"])?;
+    Ok(())
 }

@@ -5,8 +5,7 @@ Online Help
 3 help insert
 4 help update
 5 help delete
-6 help relationships
-7 help JSONPath
+6 help JSONPath
 
 [help dataset]
 Dataset commands help
@@ -24,10 +23,12 @@ CREATE DATASET myds;
 
 Full featured example:
 CREATE DATASET myds
-  PRIMARY KEY(a.b, c),
-  UNIQUE INDEX uix(a),
-  INDEX dupix(b),
+  PRIMARY KEY(a.b, c)
+  UNIQUE INDEX uix(a)
+  INDEX dupix(b)
   RELATIONSHIP rs(tgtds);
+
+The relationship rs allows to bind myds items to tgtds items through tgtds primary key.
 
 [help alter dataset]
 ALTER DATASET command help
@@ -35,9 +36,9 @@ Adds or drops relationships, indexes, or the primary key.
 
 Example:
 ALTER DATASET myds
-  DROP RELATIONSHIP rs,
-  ADD RELATIONSHIP nurs(tgtds),
-  ADD PRIMARY KEY(b, c),
+  DROP RELATIONSHIP rs
+  ADD RELATIONSHIP nurs(tgtds)
+  ADD PRIMARY KEY(b, c)
   DROP INDEX uix;
 
 [help drop dataset]
@@ -69,14 +70,18 @@ Specifies the dataset list in the FROM clause.
 
 Examples:
 SELECT a, b FROM myds;
+
+Multiple datasets and aliases can be defined for joins.
+
+Example:
 SELECT d.a, u.b FROM myds d, urds u WHERE d.x = u.y;
 
 [help select predicates]
 SELECT FROM WHERE predicates help
-Uses WHERE clause predicates to filter the result set on path expressions
-like a, a.b, a.b.c. Path expressions can be preceded by relationship navigation.
+WHERE clause predicates filter the result set on path expressions like a, a.b, a.b.c.
+Path expressions can be preceded by relationship navigation.
 
-The following operators:
+The following operators are supported:
 =, <>, >=, <=, <, >
 IN, NOT IN
 IS NULL, IS NOT NULL
@@ -88,9 +93,18 @@ SELECT * FROM myds WHERE a IN (2, 3) AND b = c.d + 1;
 SELECT * FROM myds WHERE a LIKE 'H. ther%';
 SELECT * FROM myds WHERE a REGEXP '^H. ther.*$';
 
+You can also use direct or inverse relationship navigation.
+In the following example the relationship rs is traversed to filter the path expression 'd' in the target dataset.
+
+Example:
+SELECT * FROM myds WHERE rs.d = 1;
+
+Inverse navigation example:
+SELECT * FROM tgtds WHERE INVERSE(myds.rs).a = 2;
+
 [help select projection]
 SELECT projection help
-Specify projection as a comma-separated list of path and relationship expressions.
+The SELECT projection is a comma-separated list of path and relationship expressions.
 
 Examples:
 SELECT 1 + 1.50;
@@ -99,18 +113,40 @@ SELECT rs.* FROM myds;
 
 [help insert]
 INSERT INTO command help
-Inserts values into a dataset.
+Inserts dataset items into a dataset.
 
 Example:
-INSERT INTO myds VALUES '{"a": 1, "b": "hi"}', '{"a": 2}';
+INSERT INTO myds VALUES
+  '{"a": 1, "b": "hi"}',
+  '{"a": 2}';
+
+Relationship elements can also be added to the new items.
+In the example below, ('hello', 1) maps to the primary key segments of
+the rs target dataset. The nurs target dataset has only one primary key segment.
+
+Example:
+INSERT INTO myds VALUES
+  '{"a": 1, "b": "hi"}' rs ('hello', 1) ('there', 2) nurs (3),
+  '{"a": 2}';
 
 [help update]
-UPDATE SET or DELETE command help
-Updates or deletes JSON elements within dataset items.
+UPDATE SET, DELETE, INSERT, REMOVE command help
+Updates or deletes JSON elements and relationship elements within dataset items.
 
 Examples:
-UPDATE myds SET a = 2, b = 'hello' WHERE a = 1;
-UPDATE myds DELETE c, d WHERE a = 1;
+UPDATE myds
+    SET a = 2 b = 'hello'
+    DELETE c d
+  WHERE a = 1;
+
+The following example adds and removes relationship elements.
+
+Example:
+UPDATE myds
+    INSERT rs ('hi', 1) ('there', 2) nurs (3)
+    REMOVE rs ('hello', 3)
+  WHERE a = 4;
+
 
 [help delete]
 DELETE FROM command help
@@ -118,60 +154,6 @@ Deletes dataset items.
 
 Example:
 DELETE FROM myds WHERE a = 1;
-
-[help relationships]
-Relationships help
-1 relationship create
-2 relationship drop
-3 relationship insert
-4 relationship delete
-5 relationship predicate
-6 relationship projection
-
-[help relationship create]
-CREATE DATASET RELATIONSHIP/ ALTER DATASET ADD RELATIONSHIP help
-Creates a relationship that binds to the primary key of the target dataset.
-
-Examples:
-CREATE DATASET myds RELATIONSHIP rs(tgtds);
-ALTER DATASET myds ADD RELATIONSHIP rs(tgtds);
-
-[help relationship drop]
-ALTER DROP relationship help
-Drops a relationship.
-
-Example:
-ALTER DATASET myds DROP RELATIONSHIP rs;
-
-[help relationship insert]
-INSERT INTO relationship help
-Adds a relationship link. Values must match existing primary key segments of the target dataset, in declaration order.
-
-Example:
-INSERT INTO myds.rs VALUES ('hi', 1) WHERE a = 2;
-
-[help relationship delete]
-DELETE FROM relationship help
-Deletes relationship successors.
-
-Example:
-DELETE FROM myds.rs VALUES ('hi', 1) WHERE a = 2;
-
-[help relationship predicate]
-SELECT FROM WHERE relationship predicate help
-Filters items through relationship or inverse relationship navigation. These can be followed by path or JSONPath expressions.
-
-Examples:
-SELECT * FROM myds WHERE rs.d = 1;
-SELECT * FROM tgtds WHERE INVERSE(myds.rs).a = 2;
-
-[help relationship projection]
-SELECT relationship projection help
-Projects dataset item content through relationship or inverse relationship navigation.
-
-Examples:
-SELECT a, b, rs.d FROM myds;
-SELECT b, c.d, INVERSE(myds.rs).* FROM tgtds;
 
 [help JSONPath]
 JSONPath expressions help

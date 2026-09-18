@@ -23,14 +23,14 @@ fn test_rel_stmt_exe() {
     for stmt in [
         "create dataset job",
         "create dataset tgtds primary key(b,c)",
-        "create dataset myds primary key(a), relationship rs(tgtds)",
+        "create dataset myds primary key(a) relationship rs(tgtds)",
         "alter dataset tgtds add relationship trs(myds)",
         "insert into myds values '{\"a\": 2}'",
         "insert into myds values '{\"a\": 3}'",
         "insert into tgtds values '{\"b\": \"hi\", \"c\": 1}'",
         "insert into tgtds values '{\"b\": \"there\", \"c\": 2}'",
-        "insert into myds.rs values ('hi', 1) where a = 2",
-        "insert into tgtds.trs values (2) where b = 'hi'",
+        "update myds insert rs ('hi', 1) where a = 2",
+        "update tgtds insert trs (2) where b = 'hi'",
     ] {
         let res = sqlcontrols::stmt_exec(&mut ctxt, stmt);
         assert!(
@@ -46,32 +46,32 @@ fn test_rel_stmt_exe() {
         (
             "select *, trs.* from tgtds",
             vec![
-                "{\"b\":\"hi\",\"c\":1,\"trs\":2}, {\"a\":2,\"rs\":\"hi 1\"}",
                 "{\"b\":\"there\",\"c\":2}, null",
+                "{\"b\":\"hi\",\"c\":1,\"trs\":2}, {\"a\":2,\"rs\":\"hi 1\"}",
             ],
         ),
         // Skip rel summary
         (
             "select t, t.trs from tgtds t",
             vec![
-                "{\"b\":\"hi\",\"c\":1}, {\"a\":2}",
                 "{\"b\":\"there\",\"c\":2}, null",
+                "{\"b\":\"hi\",\"c\":1}, {\"a\":2}",
             ],
         ),
         // Show rel summary with inverse '*' projection
         (
             "select *, inverse(myds.rs).* from tgtds",
             vec![
-                "{\"b\":\"hi\",\"c\":1,\"trs\":2}, {\"a\":2,\"rs\":\"hi 1\"}",
                 "{\"b\":\"there\",\"c\":2}, null",
+                "{\"b\":\"hi\",\"c\":1,\"trs\":2}, {\"a\":2,\"rs\":\"hi 1\"}",
             ],
         ),
         // Inverse going back to self
         (
             "select *, inverse(myds.rs).rs.* from tgtds",
             vec![
-                "{\"b\":\"hi\",\"c\":1,\"trs\":2}, {\"b\":\"hi\",\"c\":1,\"trs\":2}",
                 "{\"b\":\"there\",\"c\":2}, null",
+                "{\"b\":\"hi\",\"c\":1,\"trs\":2}, {\"b\":\"hi\",\"c\":1,\"trs\":2}",
             ],
         ),
     ];

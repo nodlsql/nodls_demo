@@ -19,14 +19,16 @@
 
 pub mod ast;
 pub mod lexer;
-pub mod sqlstmt;
+mod sqlstmt {
+    include!(concat!(env!("OUT_DIR"), "/sqlstmt.rs"));
+}
 
 use thiserror::Error;
 
 use lalrpop_util::ParseError;
 use crate::lexer::{Tok, LexicalError};
 
-// Re-export commonly-used items so consumers (tests) can access them as sqlparser::...
+// Re-export commonly-used items so consumers (tests) can access them as sqlparse::...
 //pub use sqlstmt::ParseError;
 pub use sqlstmt::SqlStmtExprParser;
 

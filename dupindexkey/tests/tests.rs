@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use indexcapn::indexkey_capnp::{index_page, key_component};
-use sqlinsts::{sql_value_pb::Data, SqlValuePb};
+use sqlinsts::sqlinsts::{sql_value_pb::Data, SqlValuePb};
 use std::{cell::RefCell, vec};
 use indexkey;
 

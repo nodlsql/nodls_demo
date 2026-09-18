@@ -15,7 +15,7 @@
 use indexcapn::indexkey_capnp::index_page;
 use sqlexet::{MtOidT, MtSizeT, MtStsT, SqlExeTrait, STS_SUCCESS};
 
-use sqlinsts::{CompOperatorPb, SqlValuePb};
+use sqlinsts::sqlinsts::{CompOperatorPb, SqlValuePb};
 use std::cell::RefCell;
 use tracing::debug;
 

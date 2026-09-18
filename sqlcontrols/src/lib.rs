@@ -18,10 +18,10 @@ use sqlexet::{
     IdSpc, MtOidT, MtSchemaType, SqlExeTrait, MIN_USER_DATASET_ID, MTS_ENDOFSTREAM, STS_SUCCESS,
 };
 
-use sqlinsts::{
+use sqlinsts::sqlinsts::{
     sql_inst_pb::Inst, sql_value_pb, CompOperatorPb, DdlOpPb, IComparePb, IDatapathPb, IDatasetPb,
-    IDeletePb, IIndexPb, IProjPb, IRelPb, IRelUpdPb, IUpdatePb, IYankPb, IndexOpPb, IndexTypePb,
-    RelOpPb, SqlPlanPb, SqlStmtPb, SqlValuePb,
+    IDeletePb, IExprPb, IIndexPb, IInsertPb, IProjPb, IRelPb, IUpdatePb, IndexOpPb, IndexTypePb,
+    OperPb, RangePb, RelUpdPb, SqlInstPb, SqlPlanPb, SqlStmtPb, SqlValuePb, UpdateOpPb,
 };
 
 use utils::SqlExecError;
@@ -65,28 +65,33 @@ macro_rules! get_id_value {
 }
 
 macro_rules! get_ds_desc {
-    ($c: ident, $ds_id: expr) => {
-        if let Some(ds_desc) = sqloptimize::utils::get_dataset_desc($c, $ds_id) {
-            ds_desc
-        } else {
-            return Err(SqlExecError::ExecutionError(format!(
-                "Failed to get dataset descriptor for dataset ID 0x{:x}",
-                $ds_id
-            )));
+    ($c: ident, $dsn: expr, $dsi: expr, $r: ident, $dsc: ident) => {
+        // ds_id is not set if create index part of 'create dataset xxx index yyy'
+        if $dsi != 0 && $dsc._id == 0 {
+            if let Some(ds_desc) = sqloptimize::utils::get_dataset_desc($c, $dsi) {
+                $dsc = ds_desc;
+            } else {
+                $r = Err(SqlExecError::ExecutionError(format!(
+                    "Failed to get dataset descriptor for dataset {}",
+                    $dsn
+                )));
+                break;
+            }
         }
     };
 }
 
 pub fn stmt_exec(ctxt: &mut impl SqlExeTrait, input: &str) -> Result<Vec<String>, SqlExecError> {
     // Parse
-    let mut ast = sqlparser::parse_stmt(input)?;
+    let mut ast = sqlparse::parse_stmt(input)?;
     // Translate to SQL plan
     ctxt.activate_task();
     ctxt.clear_counts();
-    let plan = sqlplan::translate(ctxt, &mut ast)?;
-    debug!("SQL Plan: {:?}", plan);
+    let mut plan = sqlplan::translate(ctxt, &mut ast)?;
+    sqloptimize::optimize_plan(ctxt, &mut plan)?;
+    #[cfg(any(demoprt, prodprt))]
+    println!("SQL Plan:\n{}", sqlplan::utils::pretty_print_plan(&plan));
     // Execute
-    debug!("Values: {:?}", plan.values);
     let mut values: Vec<RefCell<SqlValuePb>> = vec![];
     for val in &plan.values {
         values.push(RefCell::new(val.clone()));
@@ -111,14 +116,14 @@ pub fn stmt_exec(ctxt: &mut impl SqlExeTrait, input: &str) -> Result<Vec<String>
     );
     let mut proj_rows: Vec<String> = vec![];
     let res = match stmt {
-        SqlStmtPb::CreateDataset => alter_dataset_stmt_exec(ctxt, &plan),
-        SqlStmtPb::AlterDataset => alter_dataset_stmt_exec(ctxt, &plan),
-        SqlStmtPb::Select
-        | SqlStmtPb::DeleteFrom
-        | SqlStmtPb::UpdateRel
-        | SqlStmtPb::Update
-        | SqlStmtPb::Yank
-        | SqlStmtPb::InsertInto => {
+        SqlStmtPb::CreateDsStmt => alter_dataset_stmt_exec(ctxt, &plan),
+        SqlStmtPb::AlterDsStmt => alter_dataset_stmt_exec(ctxt, &plan),
+        SqlStmtPb::DropDsStmt => alter_dataset_stmt_exec(ctxt, &plan),
+        SqlStmtPb::DescribeDsStmt => describe_dataset_stmt_exec(ctxt, &plan),
+        SqlStmtPb::SelectStmt
+        | SqlStmtPb::DeleteFromStmt
+        | SqlStmtPb::UpdateStmt
+        | SqlStmtPb::InsertIntoStmt => {
             select_stmt_exec(ctxt, &plan, 0, &values, proj_cols, &mut proj_rows)
         }
     };
@@ -129,15 +134,12 @@ pub fn stmt_exec(ctxt: &mut impl SqlExeTrait, input: &str) -> Result<Vec<String>
     Ok(proj_rows)
 }
 
-fn alter_dataset_stmt_exec(
+fn describe_dataset_stmt_exec(
     ctxt: &mut impl SqlExeTrait,
     plan: &SqlPlanPb,
 ) -> Result<String, SqlExecError> {
-    debug!("Alter dataset descriptor plan: {:?}", plan);
-    ctxt.start_tran();
-    // either from inst of just created for create dataset statement, or from previous alter statement
-    let mut ds_id = 0;
-    let mut create_ds = false;
+    debug!("Describe dataset descriptor plan: {:?}", plan);
+    let mut res: Result<std::string::String, SqlExecError> = Ok("".to_string());
     let mut ds_desc = jbparse::DatasetDesc {
         name: "".to_string(),
         _id: 0,
@@ -145,6 +147,34 @@ fn alter_dataset_stmt_exec(
         indexes: vec![],
     };
     for inst_option in &plan.insts {
+        if let Some(Inst::DdlUpdate(d)) = &inst_option.inst {
+            if DdlOpPb::try_from(d.op).unwrap() == DdlOpPb::DescribeDs {
+                get_ds_desc!(ctxt, d.ds_name, d.ds_id, res, ds_desc);
+                let dsdesc_str = utils::describe_ds(&ds_desc);
+                println!("{}", dsdesc_str);
+            }
+        }
+    }
+    res
+}
+
+fn alter_dataset_stmt_exec(
+    ctxt: &mut impl SqlExeTrait,
+    plan: &SqlPlanPb,
+) -> Result<String, SqlExecError> {
+    debug!("Alter dataset descriptor plan: {:?}", plan);
+    // either from inst of just created for create dataset statement, or from previous alter statement
+    let mut create_ds = false;
+    let mut drop_ds = false;
+    let mut ds_desc = jbparse::DatasetDesc {
+        name: "".to_string(),
+        _id: 0,
+        rels: vec![],
+        indexes: vec![],
+    };
+    ctxt.start_tran();
+    let mut res: Result<std::string::String, SqlExecError> = Ok("".to_string());
+    'outer: for inst_option in &plan.insts {
         match inst_option.inst.as_ref() {
             // SqlInstPb { inst: Some(Index(IIndexPb { idx_type: Pkey, name: "", path: ["a.b", "c"], key_val_idx: -1, index_key: -1 })) }
             Some(Inst::DdlUpdate(d)) => {
@@ -152,58 +182,43 @@ fn alter_dataset_stmt_exec(
                     DdlOpPb::CreateDs => {
                         ds_desc.name = d.ds_name.clone();
                         ds_desc._id = ctxt.objid_make(sqlexet::MtSchemaType::KeyDataset);
-                        ds_id = ds_desc._id;
                         create_ds = true;
                     }
                     DdlOpPb::DropDs => {
                         let sts = ctxt.drop_dataset(ctxt.get_tranid(), d.ds_id);
-                        return if sts != STS_SUCCESS {
-                            Err(SqlExecError::ExecutionError(
+                        if sts != STS_SUCCESS {
+                            res = Err(SqlExecError::ExecutionError(
                                 format! { "Failed to drop dataset '{}', sts=0x{:x}", d.ds_name, sts },
-                            ))
-                        } else {
-                            ctxt.increment_count(sqlexet::UpdCounter::DropDataset(1));
-                            Ok("".to_string())
-                        };
+                            ));
+                        }
+                        drop_ds = true;
+                        break 'outer;
                     }
                     DdlOpPb::DescribeDs => {
-                        if ds_id == 0 {
-                            ds_desc = get_ds_desc!(ctxt, d.ds_id);
-                        }
-                        let dsdesc_str = utils::pretty_print_dsdesc(&ds_desc);
+                        get_ds_desc!(ctxt, d.ds_name, d.ds_id, res, ds_desc);
+                        let dsdesc_str = utils::describe_ds(&ds_desc);
                         println!("{}", dsdesc_str);
-                        return Ok("".to_string());
+                        break 'outer;
                     }
                     DdlOpPb::CreateRel => {
-                        if ds_id == 0 {
-                            ds_desc = get_ds_desc!(ctxt, d.ds_id);
-                            ds_id = d.ds_id;
-                        }
+                        get_ds_desc!(ctxt, d.ds_name, d.ds_id, res, ds_desc);
                         // Should not collide with dataset name
                         if d.name == ds_desc.name {
-                            return Err(SqlExecError::ExecutionError(format!(
+                            res = Err(SqlExecError::ExecutionError(format!(
                                 "Relationship name '{}' collides with dataset name",
                                 d.name
                             )));
+                            break 'outer;
                         }
-                        // TBD - should verify rel target exists and has pkey index
+                        // Analyzer verifies rel target exists and has pkey index.
                         // Verify if rel already exists
                         for r in &ds_desc.rels {
                             if r.name == d.name {
-                                return Err(SqlExecError::ExecutionError(format!(
-                                    "Relationship {} already exists",
-                                    r.name
-                                )));
-                            }
-                        }
-                        // TBD - should verify rel target exists and has pkey index
-                        // Verify if rel already exists
-                        for r in &ds_desc.rels {
-                            if r.name == d.name {
-                                return Err(SqlExecError::ExecutionError(format!(
+                                res = Err(SqlExecError::ExecutionError(format!(
                                     "Relationship '{}' already exists in dataset '{}'",
                                     d.name, ds_desc.name
                                 )));
+                                break 'outer;
                             }
                         }
                         debug!("Creating rel: {:?}", d);
@@ -215,10 +230,7 @@ fn alter_dataset_stmt_exec(
                         });
                     }
                     DdlOpPb::DropRel => {
-                        if ds_id == 0 {
-                            ds_desc = get_ds_desc!(ctxt, d.ds_id);
-                            ds_id = d.ds_id;
-                        }
+                        get_ds_desc!(ctxt, d.ds_name, d.ds_id, res, ds_desc);
                         debug!("Dropping rel: {:?}", d);
                         let mut found = false;
                         for i in 0..ds_desc.rels.len() {
@@ -229,31 +241,32 @@ fn alter_dataset_stmt_exec(
                             }
                         }
                         if !found {
-                            return Err(SqlExecError::ExecutionError(format!(
+                            res = Err(SqlExecError::ExecutionError(format!(
                                 "Failed to find rel '{}' in dataset '{}'",
                                 d.name, ds_desc.name
                             )));
+                            break 'outer;
                         }
                     }
                     DdlOpPb::CreateIdx => {
-                        if ds_id == 0 {
-                            ds_desc = get_ds_desc!(ctxt, d.ds_id);
-                            ds_id = d.ds_id;
-                        }
+                        get_ds_desc!(ctxt, d.ds_name, d.ds_id, res, ds_desc);
                         debug!("Creating index '{}', path: {:?}", d.name, d.seg_strs);
                         // Verify if index already exists
                         for idx in &ds_desc.indexes {
                             if idx.name == d.name {
+                                // Check if PK index, with same name as ds name
                                 if idx.name == ds_desc.name {
-                                    return Err(SqlExecError::ExecutionError(format!(
+                                    res = Err(SqlExecError::ExecutionError(format!(
                                         "Primary key index already exists for dataset '{}'",
                                         ds_desc.name
                                     )));
+                                } else {
+                                    res = Err(SqlExecError::ExecutionError(format!(
+                                        "Index '{}' already exists for dataset '{}'",
+                                        d.name, ds_desc.name
+                                    )));
                                 }
-                                return Err(SqlExecError::ExecutionError(format!(
-                                    "Index '{}' already exists for dataset '{}'",
-                                    d.name, ds_desc.name
-                                )));
+                                break 'outer;
                             }
                         }
                         let mut unique = true;
@@ -283,16 +296,16 @@ fn alter_dataset_stmt_exec(
                                 segs: d.seg_strs.clone(),
                             });
                         } else {
-                            debug!("Failed to create index '{}'", d.name);
+                            res = Err(SqlExecError::ExecutionError(format!(
+                                "Failed to create index for dataset {}",
+                                d.ds_name
+                            )));
+                            break 'outer;
                         }
                     }
                     DdlOpPb::DropIdx => {
-                        if ds_id == 0 {
-                            ds_desc = get_ds_desc!(ctxt, d.ds_id);
-                            ds_id = d.ds_id;
-                        }
-                        debug!("Dropping index '{}'", d.name);
-                        let mut found = false;
+                        get_ds_desc!(ctxt, d.ds_name, d.ds_id, res, ds_desc);
+                        debug!("Dropping index '{}' {:?}", d.name, ds_desc);
                         for i in 0..ds_desc.indexes.len() {
                             if ds_desc.indexes[i].name == d.name {
                                 // Drop capn index root node
@@ -307,22 +320,28 @@ fn alter_dataset_stmt_exec(
                                         d.name, ds_desc.indexes[i]._id
                                     );
                                     ds_desc.indexes.remove(i);
-                                    found = true;
                                 } else {
-                                    return Err(SqlExecError::ExecutionError(format!(
-                                        "Failed to delete index dataset ID 0x{:x}",
-                                        d.ds_id
+                                    res = Err(SqlExecError::ExecutionError(format!(
+                                        "Failed to delete index for dataset {}",
+                                        d.ds_name
                                     )));
                                 }
-                                break;
+                                // Found the index
+                                break 'outer;
                             }
                         }
-                        if !found {
-                            return Err(SqlExecError::ExecutionError(format!(
-                                "Failed to find index '{}' in dataset '{}'",
-                                d.name, ds_desc.name
-                            )));
+                        let mut errmsg = format!(
+                            "Failed to find index '{}' in dataset '{}'",
+                            d.name, d.ds_name
+                        );
+                        if d.idx_type == IndexTypePb::Pkey as i32 {
+                            errmsg = format!(
+                                "Failed to find primary key index in dataset '{}'",
+                                d.ds_name
+                            );
                         }
+                        res = Err(SqlExecError::ExecutionError(errmsg));
+                        break 'outer;
                     }
                     _ => {}
                 } // Match DdlOpPb
@@ -330,6 +349,12 @@ fn alter_dataset_stmt_exec(
             _ => {}
         }
     }
+
+    if res.is_err() {
+        ctxt.tran_abort();
+        return res;
+    }
+    // Update the dataset descriptor if create, drop or alter statements
     // {"name":"xcv","indexes":[{"name":"xcv","segs":["a.b","c"]}]}
     let json_value = jsonb::to_owned_jsonb(&ds_desc).unwrap();
     let data_binary = json_value.to_vec();
@@ -356,6 +381,8 @@ fn alter_dataset_stmt_exec(
     }
     if create_ds {
         ctxt.increment_count(sqlexet::UpdCounter::CreateDataset(1));
+    } else if drop_ds {
+        ctxt.increment_count(sqlexet::UpdCounter::DropDataset(1));
     } else {
         ctxt.increment_count(sqlexet::UpdCounter::AlterDataset(1));
     }
@@ -364,46 +391,27 @@ fn alter_dataset_stmt_exec(
 
 // This is a simple case, all values present in plan have to be inserted
 // into the indexes. IIndex insts don't need to keep track of key_val_idx or others.
-fn insert_into_exec(
+fn iinsert_into_exec(
     ctxt: &mut impl SqlExeTrait,
     plan: &SqlPlanPb,
     offset: usize,
     values: &Vec<RefCell<SqlValuePb>>,
-    iinsert: &sqlinsts::IInsertPb,
+    iinsert: &IInsertPb,
     proj_cols: &mut Vec<String>,
     proj_rows: &mut Vec<String>,
 ) -> Result<String, SqlExecError> {
     let tranid = ctxt.start_tran();
     ctxt.set_tranid(tranid);
     // insert values
-    for i in iinsert.val_idxs.iter().map(|idx| *idx as usize) {
-        debug!("Inserting value {}: {:?}", i, values[i].borrow());
-        let mut obj_key: MtOidT = 0;
-        let valborrow = values[i].borrow();
-        let value = valborrow.data.as_ref().unwrap();
-        let val_str = match value {
-            sql_value_pb::Data::StringValue(s) => s.as_str(),
-            _ => "",
-        };
-        let res = jbparse::jsonstr_to_jsonb(val_str);
-        if let Err(e) = res {
-            return Err(SqlExecError::ExecutionError(format!("{}", e)));
-        }
-        let data_binary = res.unwrap();
-        let data_size: c_uint = data_binary.len() as c_uint;
-        let sts = ctxt.create_item(
-            ctxt.get_tranid(),
-            iinsert.ds_id,
-            &mut obj_key,
-            &data_binary,
-            data_size,
-        );
-        if sts != STS_SUCCESS {
-            // If any error create_item does abort the transaction
-            return Err(SqlExecError::ExecutionError(format!(
-                "Failed to insert value {} into dataset '{:?}', sts=0x{:x}",
-                i, iinsert.ds_id, sts
-            )));
+    for valrels in &iinsert.valsrels {
+        let obj_key = utils::insert_value(ctxt, valrels, values, iinsert.ds_id)?;
+        // Rel insert
+        for ru in &valrels.relupd {
+            let res = rel_update_exec(ctxt, obj_key, values, ru);
+            if res.is_err() {
+                ctxt.tran_abort();
+                return Err(res.err().unwrap());
+            }
         }
         // Set the oid in key_val_idx
         values[0].borrow_mut().data = Some(sql_value_pb::Data::OidValue(obj_key));
@@ -419,7 +427,7 @@ fn insert_into_exec(
             commit_sts
         )));
     }
-    ctxt.increment_count(sqlexet::UpdCounter::Insert(iinsert.val_idxs.len() as i32));
+    ctxt.increment_count(sqlexet::UpdCounter::Insert(iinsert.valsrels.len() as i32));
     return Ok("".to_string());
 }
 
@@ -464,19 +472,17 @@ fn irel_exec(
     Ok("".to_string())
 }
 
-fn irel_update_exec(
+fn rel_update_exec(
     ctxt: &mut impl SqlExeTrait,
-    _plan: &SqlPlanPb,
-    _offset: usize,
+    curr_id: u32,
     values: &Vec<RefCell<SqlValuePb>>,
-    irelupd: &IRelUpdPb,
+    relupd: &RelUpdPb,
 ) -> Result<String, SqlExecError> {
     // Get value refs
-    let curr_id = get_id_value!(values, irelupd.key_val_idx as usize);
-    let upd_type = RelOpPb::try_from(irelupd.upd_type).unwrap();
-    for r in &irelupd.ranges {
+    let upd_op = UpdateOpPb::try_from(relupd.upd_op).unwrap();
+    for r in &relupd.ranges {
         debug!("Scan range: {:?}", r);
-        let res = index_scan(ctxt, irelupd.tgt_index_root_id, values, &r.ranges, true);
+        let res = index_scan(ctxt, relupd.tgt_index_root_id, values, &r.ranges, true);
         if let Ok(res_opt) = res {
             match res_opt {
                 Some((ids, _)) => {
@@ -487,9 +493,9 @@ fn irel_update_exec(
                     for item_id in &ids {
                         if let Err(e) = utils::update_rels(
                             ctxt,
-                            upd_type,
+                            upd_op,
                             true, // inverse rel
-                            irelupd.rel_id,
+                            relupd.rel_id,
                             *item_id,
                             &vec![curr_id],
                         ) {
@@ -499,9 +505,9 @@ fn irel_update_exec(
                     // Update the self id direct relationship with the target ids we got from the PK index
                     let ret = utils::update_rels(
                         ctxt,
-                        upd_type,
+                        upd_op,
                         false, // direct rel
-                        irelupd.rel_id,
+                        relupd.rel_id,
                         curr_id,
                         &ids,
                     );
@@ -513,7 +519,7 @@ fn irel_update_exec(
                     // No matching pkey entry
                     return Err(SqlExecError::ExecutionError(format!(
                         "No matching pkey entry for relationship {}",
-                        irelupd.name
+                        relupd.name
                     )));
                 }
             }
@@ -549,9 +555,8 @@ fn select_stmt_exec(
             }
             Some(Inst::Proj(p)) => iproj_exec(ctxt, plan, offset, values, &p, proj_cols, proj_rows),
             Some(Inst::Rel(r)) => irel_exec(ctxt, plan, offset, values, &r, proj_cols, proj_rows),
-            Some(Inst::RelUpdate(u)) => irel_update_exec(ctxt, plan, offset, values, &u),
             Some(Inst::Insert(i)) => {
-                insert_into_exec(ctxt, plan, offset, values, &i, proj_cols, proj_rows)
+                iinsert_into_exec(ctxt, plan, offset, values, &i, proj_cols, proj_rows)
             }
             Some(Inst::Delete(d)) => {
                 idelete_exec(ctxt, plan, offset, values, &d, proj_cols, proj_rows)
@@ -559,7 +564,6 @@ fn select_stmt_exec(
             Some(Inst::Update(u)) => {
                 iupdate_exec(ctxt, plan, offset, values, &u, proj_cols, proj_rows)
             }
-            Some(Inst::Yank(y)) => iyank_exec(ctxt, plan, offset, values, &y, proj_cols, proj_rows),
             _ => Ok("".to_string()),
         },
         None => Ok("".to_string()),
@@ -582,11 +586,11 @@ fn iupdate_exec(
     {
         let mut data_part: [u8; 32000] = [0; 32000];
         let mut data_size: c_uint = data_part.len() as c_uint;
-        let mut set_id: c_uint = 0;
+        let mut ds_id: c_uint = 0;
         let sts = ctxt.get_datapart(
             ctxt.get_ltime(),
             item_id,
-            &mut set_id,
+            &mut ds_id,
             &mut data_part,
             &mut data_size,
         );
@@ -602,31 +606,34 @@ fn iupdate_exec(
         let raw_jsonb = owned_jsonb.as_raw();
         let mut updated_str = raw_jsonb.to_string();
         // For each update segment, apply the update to the datapart content
-        for (i, path) in iupdate.pathsegs.iter().enumerate() {
-            let val_idx = iupdate.val_idxs[i] as usize;
+        for pathupd in &iupdate.pathupds {
+            let val_idx = pathupd.val_idx as usize;
             // Split the dot separated path into a vector of segments
-            let path_segs: Vec<String> = path.split('.').map(|s| s.to_string()).collect();
+            let path_segs: Vec<String> =
+                pathupd.pathsegs.split('.').map(|s| s.to_string()).collect();
 
             // Drop previous path value if any
             let res = jbparse::drop_from_jsonstr(&updated_str, &path_segs);
             if let Err(e) = res {
                 return Err(SqlExecError::ExecutionError(format!(
                     "Failed to drop update path {:?} from datapart for item ID 0x{:x}: {}",
-                    path, item_id, e
+                    pathupd.pathsegs, item_id, e
                 )));
             };
             updated_str = res.unwrap();
 
             // Insert value at path
-            let value = &values[val_idx].borrow();
-            let res = jbparse::insert_into_jsonstr(&updated_str, &path_segs, value);
-            if let Err(e) = res {
-                return Err(SqlExecError::ExecutionError(format!(
-                    "Failed to insert update path {:?} to datapart for item ID 0x{:x}: {}",
-                    path, item_id, e
-                )));
-            };
-            updated_str = res.unwrap();
+            if pathupd.upd_op == UpdateOpPb::Update as i32 {
+                let value = &values[val_idx].borrow();
+                let res = jbparse::insert_into_jsonstr(&updated_str, &path_segs, value);
+                if let Err(e) = res {
+                    return Err(SqlExecError::ExecutionError(format!(
+                        "Failed to insert update path {:?} to datapart for item ID 0x{:x}: {}",
+                        pathupd.pathsegs, item_id, e
+                    )));
+                };
+                updated_str = res.unwrap();
+            }
         }
         // Update the datapart with the updated content
         let updated_data_binary = jbparse::jsonstr_to_jsonb(&updated_str).unwrap();
@@ -644,78 +651,15 @@ fn iupdate_exec(
         }
         // TBD - need to block schema updates
     }
-
-    // Index keys are removed by next IIndex instructions
-    next_select_stmt_exec!(ctxt, plan, offset + 1, values, proj_cols, proj_rows);
-
-    ctxt.increment_count(sqlexet::UpdCounter::Update(1));
-    Ok("".to_string())
-}
-
-fn iyank_exec(
-    ctxt: &mut impl SqlExeTrait,
-    plan: &SqlPlanPb,
-    offset: usize,
-    values: &Vec<RefCell<SqlValuePb>>,
-    iyank: &IYankPb,
-    proj_cols: &mut Vec<String>,
-    proj_rows: &mut Vec<String>,
-) -> Result<String, SqlExecError> {
-    // Get value refs
-    let item_id = get_id_value!(values, iyank.key_val_idx as usize);
-    // Get smaller scope for mutable borrow of res_val
-    {
-        let mut data_part: [u8; 32000] = [0; 32000];
-        let mut data_size: c_uint = data_part.len() as c_uint;
-        let mut set_id: c_uint = 0;
-        let sts = ctxt.get_datapart(
-            ctxt.get_ltime(),
-            item_id,
-            &mut set_id,
-            &mut data_part,
-            &mut data_size,
-        );
-        debug!("get_datapart sts: 0x{:x} size: {}", sts, data_size);
-        if sts != STS_SUCCESS {
-            return Err(SqlExecError::ExecutionError(format!(
-                "Failed to get datapart for item ID 0x{:x} sts: 0x{:x}",
-                item_id, sts
-            )));
+    // Rel update
+    for vrels in &iupdate.relupds {
+        for ru in &vrels.relupd {
+            let res = rel_update_exec(ctxt, item_id, values, ru);
+            if res.is_err() {
+                ctxt.tran_abort();
+                return Err(res.err().unwrap());
+            }
         }
-        let data_slice: &[u8] = &data_part[..data_size as usize];
-        let owned_jsonb = jsonb::OwnedJsonb::new(data_slice.to_vec());
-        let raw_jsonb = owned_jsonb.as_raw();
-        let mut updated_str = raw_jsonb.to_string();
-        // For each update segment, apply the update to the datapart content
-        for path in &iyank.pathsegs {
-            // Split the dot separated path into a vector of segments
-            let path_segs: Vec<String> = path.split('.').map(|s| s.to_string()).collect();
-
-            // Yank path content if any
-            let res = jbparse::drop_from_jsonstr(&updated_str, &path_segs);
-            if let Err(e) = res {
-                return Err(SqlExecError::ExecutionError(format!(
-                    "Failed to delete update path {:?} from datapart for item ID 0x{:x}: {}",
-                    path, item_id, e
-                )));
-            };
-            updated_str = res.unwrap();
-        }
-        // Update the datapart with the updated content
-        let updated_data_binary = jbparse::jsonstr_to_jsonb(&updated_str).unwrap();
-        let sts = ctxt.update_item(
-            ctxt.get_tranid(),
-            item_id,
-            &updated_data_binary,
-            updated_data_binary.len() as c_uint,
-        );
-        if sts != STS_SUCCESS {
-            return Err(SqlExecError::ExecutionError(format!(
-                "Failed to update datapart for item ID 0x{:x}",
-                item_id,
-            )));
-        }
-        // TBD - need to block schema updates
     }
 
     // Index keys are removed by next IIndex instructions
@@ -769,7 +713,7 @@ fn iexpr_exec(
     plan: &SqlPlanPb,
     offset: usize,
     values: &Vec<RefCell<SqlValuePb>>,
-    iexpr: &sqlinsts::IExprPb,
+    iexpr: &IExprPb,
     proj_cols: &mut Vec<String>,
     proj_rows: &mut Vec<String>,
 ) -> Result<String, SqlExecError> {
@@ -777,11 +721,7 @@ fn iexpr_exec(
 
     let left_val = values[iexpr.lval_idx as usize].borrow();
     let right_val = values[iexpr.rval_idx as usize].borrow();
-    let res_val = utils::evaluate_expr(
-        &left_val,
-        &right_val,
-        sqlinsts::OperPb::try_from(iexpr.op).unwrap(),
-    );
+    let res_val = utils::evaluate_expr(&left_val, &right_val, OperPb::try_from(iexpr.op).unwrap());
     debug!("Expression result value: {:?}", res_val);
     // Set the result value to the target val idx
     values[iexpr.resval_idx as usize].borrow_mut().data = Some(res_val);
@@ -998,7 +938,7 @@ fn dataset_process_ids(
     plan: &SqlPlanPb,
     offset: usize,
     values: &Vec<RefCell<SqlValuePb>>,
-    idataset_inst: &sqlinsts::SqlInstPb,
+    idataset_inst: &SqlInstPb,
     id_vec: &[u32],
     num_ids: c_uint,
     proj_cols: &mut Vec<String>,
@@ -1056,7 +996,7 @@ fn idataset_exec(
     let mut num_ids: c_uint = id_vec.len() as c_uint;
     let mut next_ids = false;
     let mut ret = Ok("".to_string());
-    let idataset_inst = sqlinsts::SqlInstPb {
+    let idataset_inst = SqlInstPb {
         inst: Some(Inst::Dataset(idataset.clone())),
     };
     let sts = loop {
@@ -1150,7 +1090,7 @@ fn index_scan(
     ctxt: &mut impl SqlExeTrait,
     root_id: MtOidT,
     values: &Vec<RefCell<SqlValuePb>>,
-    ranges: &Vec<sqlinsts::RangePb>,
+    ranges: &Vec<RangePb>,
     unique: bool,
 ) -> Result<Option<(Vec<u32>, indexsrch::ScanOutput)>, String> {
     let mut fetched_ids: Vec<u32> = vec![];
@@ -1158,7 +1098,7 @@ fn index_scan(
     let in_pred_nb_vals = if ranges.is_empty() {
         1
     } else {
-        ranges[0].lower_bound_nb_vals
+        ranges[0].lb_nb_vals
     };
     for in_val_offset in 0..in_pred_nb_vals {
         let mut start_keys = vec![];
@@ -1166,16 +1106,16 @@ fn index_scan(
         let mut end_keys = vec![];
         let mut end_cmps = vec![];
         for r in ranges {
-            if r.lower_bound_val_idx < 0 {
+            if r.lb_val_idx < 0 {
                 continue;
             }
-            start_keys.push(values[(r.lower_bound_val_idx + in_val_offset) as usize].clone());
-            start_cmps.push(CompOperatorPb::try_from(r.lower_op).unwrap());
-            if r.upper_bound_val_idx < 0 {
+            start_keys.push(values[(r.lb_val_idx + in_val_offset) as usize].clone());
+            start_cmps.push(CompOperatorPb::try_from(r.lb_op).unwrap());
+            if r.ub_val_idx < 0 {
                 continue;
             }
-            end_keys.push(values[r.upper_bound_val_idx as usize].clone());
-            end_cmps.push(CompOperatorPb::try_from(r.upper_op).unwrap());
+            end_keys.push(values[r.ub_val_idx as usize].clone());
+            end_cmps.push(CompOperatorPb::try_from(r.ub_op).unwrap());
         }
         debug!("Index scan start keys: {:?}", start_keys);
         debug!("Index scan start cmps: {:?}", start_cmps);
@@ -1204,8 +1144,8 @@ fn index_scan(
         // no need to fetch more, continue to next value if any
         if let indexsrch::ScanOutput::More = scan_output {
             if !ranges.is_empty()
-                && (ranges[0].lower_op == CompOperatorPb::Eq as i32
-                    || ranges[0].lower_op == CompOperatorPb::In as i32)
+                && (ranges[0].lb_op == CompOperatorPb::Eq as i32
+                    || ranges[0].lb_op == CompOperatorPb::In as i32)
             {
                 debug!("Index scan returned more results but comparison is EQ or IN, no need to fetch more");
                 continue;
@@ -1271,7 +1211,7 @@ fn iindex_exec(
             Some(r) => &r.ranges,
             None => &vec![],
         };
-        let iindex_inst = sqlinsts::SqlInstPb {
+        let iindex_inst = SqlInstPb {
             inst: Some(Inst::Index(iindex.clone())),
         };
 
