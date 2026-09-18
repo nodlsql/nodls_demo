@@ -39,7 +39,7 @@ pub fn bt_insert_key(
     ctxt: &mut impl SqlExeTrait,
     index_page_id: MtOidT,
     id_key: MtOidT, // id value to insert
-    insert_key_vals: &Vec<RefCell<SqlValuePb>>,
+    insert_key_vals: &Vec<SqlValuePb>,
     unique: bool,
 ) -> Result<(), String> {
     // Get root node for the index schema id
@@ -84,7 +84,7 @@ pub fn bt_insert_key(
 
 pub fn insert_key(
     id_key: MtOidT, // id value to insert
-    insert_key_vals: &Vec<RefCell<SqlValuePb>>,
+    insert_key_vals: &Vec<SqlValuePb>,
     serialized_page: &[u8],
     unique: bool,
 ) -> Result<Vec<u8>, String> {
@@ -152,9 +152,9 @@ pub fn insert_key(
 pub fn bt_index_scan(
     ctxt: &mut impl SqlExeTrait,
     index_page_id: MtOidT,
-    start_key: &Vec<RefCell<SqlValuePb>>,
+    start_key: &Vec<SqlValuePb>,
     start_comp: &Vec<CompOperatorPb>,
-    end_key: &Vec<RefCell<SqlValuePb>>,
+    end_key: &Vec<SqlValuePb>,
     end_comp: &Vec<CompOperatorPb>,
     uniq: bool,
 ) -> Result<Option<(Vec<MtOidT>, indexsrch::ScanOutput)>, String> {
@@ -185,7 +185,7 @@ pub fn bt_delete_key(
     ctxt: &mut impl SqlExeTrait,
     index_page_id: MtOidT,
     id_key: MtOidT, // id value to delete
-    del_key_vals: &Vec<RefCell<SqlValuePb>>,
+    del_key_vals: &Vec<SqlValuePb>,
     unique: bool,
 ) -> Result<(), String> {
     // Fetch the root page
@@ -224,7 +224,7 @@ pub fn bt_delete_key(
 
 pub fn delete_key(
     id_key: MtOidT,
-    del_key_vals: &Vec<RefCell<SqlValuePb>>,
+    del_key_vals: &Vec<SqlValuePb>,
     serialized_page: &[u8],
     unique: bool,
 ) -> Result<Vec<u8>, String> {

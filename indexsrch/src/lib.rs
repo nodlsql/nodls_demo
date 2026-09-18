@@ -28,9 +28,9 @@ pub enum ScanOutput {
 
 pub fn index_scan(
     serialized_page: &[u8],
-    start_key: &Vec<RefCell<SqlValuePb>>,
+    start_key: &Vec<SqlValuePb>,
     start_comp: &Vec<CompOperatorPb>,
-    end_key: &Vec<RefCell<SqlValuePb>>,
+    end_key: &Vec<SqlValuePb>,
     end_comp: &Vec<CompOperatorPb>,
     uniq: bool,
 ) -> Result<Option<(Vec<u32>, ScanOutput)>, String> {
@@ -50,9 +50,9 @@ pub fn index_scan(
 
 fn index_scan_with_reader<T: IndexKeyListReader>(
     page_reader: &T,
-    start_key: &Vec<RefCell<SqlValuePb>>,
+    start_key: &Vec<SqlValuePb>,
     start_comp: &Vec<CompOperatorPb>,
-    end_key: &Vec<RefCell<SqlValuePb>>,
+    end_key: &Vec<SqlValuePb>,
     end_comp: &Vec<CompOperatorPb>,
 ) -> Result<Option<(Vec<u32>, ScanOutput)>, String> {
     let nb_entries = page_reader.len() as i32;
@@ -158,13 +158,13 @@ fn index_scan_with_reader<T: IndexKeyListReader>(
 }
 
 pub fn compare_keys(
-    values: &Vec<RefCell<SqlValuePb>>,
+    values: &Vec<SqlValuePb>,
     components: &capnp::struct_list::Reader<key_component::Owned>,
 ) -> Ordering {
     let mut comp = Ordering::Equal;
     for j in 0..components.len() {
-        let valref_opt = values.get(j as usize);
-        let valref = match valref_opt {
+        let val_opt = values.get(j as usize);
+        let val = match val_opt {
             Some(v) => v,
             None => {
                 // Less values than key components, return less
@@ -176,9 +176,9 @@ pub fn compare_keys(
         debug!(
             "Comparing key component {:?} with value {:?}",
             component,
-            valref.borrow()
+            val
         );
-        match valref.borrow().data.as_ref() {
+        match val.data.as_ref() {
             // None has precedence over explicit null value '{a: null}'
             None => {
                 match component.which().unwrap() {
@@ -397,7 +397,7 @@ impl<'a> IndexKeyListReader for capnp::struct_list::Reader<'_, dup_index_key::Ow
 
 pub fn index_binary_search<T: IndexKeyListReader>(
     key_list_reader: &T,
-    target: &Vec<RefCell<SqlValuePb>>,
+    target: &Vec<SqlValuePb>,
 ) -> SearchRes {
     let mut left = 0;
     let mut right = key_list_reader.len(); // use len() from custom trait

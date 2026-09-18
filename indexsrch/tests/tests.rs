@@ -16,7 +16,6 @@ use indexcapn::indexkey_capnp::{index_page, key_component};
 use indexsrch::{compare_keys, ScanOutput, SearchRes};
 use rust_decimal::Decimal;
 use sqlinsts::sqlinsts::{sql_value_pb::Data, CompOperatorPb, DecimalValuePb, SqlValuePb};
-use std::cell::RefCell;
 use std::cmp::Ordering;
 
 macro_rules! get_index_page_reader {
@@ -56,7 +55,7 @@ fn test_compare_str_key() {
         let serialized_page = match indexkey::insert_key_from_values(
             &serialized_page,
             1,
-            &vec![RefCell::new(idx_sql_val)],
+            &vec![idx_sql_val],
             0,
             false,
         ) {
@@ -72,7 +71,7 @@ fn test_compare_str_key() {
         let components = entry.get_cmpts().unwrap();
 
         // Compare the keys
-        let res = compare_keys(&vec![RefCell::new(sql_val)], &components);
+        let res = compare_keys(&vec![sql_val], &components);
         assert_eq!(res, expected);
     }
 }
@@ -101,8 +100,8 @@ fn test_compare_decimal_key() {
             data: Some(Data::DecimalValue(DecimalValuePb { number, scale })),
             ..Default::default()
         };
-        let sql_cmp_vals = vec![RefCell::new(sql_val)];
-        let idx_sql_vals = vec![RefCell::new(idx_sql_val)];
+        let sql_cmp_vals = vec![sql_val];
+        let idx_sql_vals = vec![idx_sql_val];
         // Create a new index_page Leaf message
         let serialized_page = indexkey::create_page(true);
         let serialized_page =
@@ -141,8 +140,8 @@ fn test_compare_compound_key() {
             data: Some(Data::Int64Value(val1)),
             ..Default::default()
         };
-        let sql_cmp_vals = vec![RefCell::new(sql_head.clone()), RefCell::new(sql_val)];
-        let idx_sql_vals = vec![RefCell::new(sql_head), RefCell::new(idx_sql_val)];
+        let sql_cmp_vals = vec![sql_head.clone(), sql_val];
+        let idx_sql_vals = vec![sql_head, idx_sql_val];
         // Create a new index_page Leaf message
         let serialized_page = indexkey::create_page(true);
         let serialized_page =
@@ -192,27 +191,27 @@ fn test_compare_null_key() {
             .clone()
             .into_iter()
             .map(|d| {
-                RefCell::new(SqlValuePb {
+                SqlValuePb {
                     data: match d {
                         NullKeyFlag::NullKey => None,
                         NullKeyFlag::NotNullKey => Some(Data::Int64Value(0)), // Placeholder value
                     },
                     is_constant: false,
                     ..Default::default()
-                })
+                }
             })
             .collect::<Vec<_>>();
         let idx_sql_vals = val1
             .clone()
             .into_iter()
             .map(|d| {
-                RefCell::new(SqlValuePb {
+                SqlValuePb {
                     data: match d {
                         NullKeyFlag::NullKey => None,
                         NullKeyFlag::NotNullKey => Some(Data::Int64Value(0)), // Placeholder value
                     },
                     ..Default::default()
-                })
+                }
             })
             .collect::<Vec<_>>();
 
@@ -266,20 +265,20 @@ fn test_compare_mismatched_key() {
             .clone()
             .into_iter()
             .map(|d| {
-                RefCell::new(SqlValuePb {
+                SqlValuePb {
                     data: Some(d),
                     ..Default::default()
-                })
+                }
             })
             .collect::<Vec<_>>();
         let idx_sql_vals = val1
             .clone()
             .into_iter()
             .map(|d| {
-                RefCell::new(SqlValuePb {
+                SqlValuePb {
                     data: Some(d),
                     ..Default::default()
-                })
+                }
             })
             .collect::<Vec<_>>();
 
@@ -313,7 +312,7 @@ fn test_index_binary_search() {
             data: Some(Data::Int64Value(*idxval)),
             ..Default::default()
         };
-        let idx_sql_vals = vec![RefCell::new(idx_sql_val)];
+        let idx_sql_vals = vec![idx_sql_val];
         serialized_page =
             indexkey::insert_key_from_values(&serialized_page, 1, &idx_sql_vals, i, false).unwrap();
     }
@@ -337,7 +336,7 @@ fn test_index_binary_search() {
             data: Some(Data::Int64Value(sqlval)),
             ..Default::default()
         };
-        let sql_cmp_vals = vec![RefCell::new(sql_val)];
+        let sql_cmp_vals = vec![sql_val];
         // Binary search for the key in the index node
         let res = indexsrch::index_binary_search(&entries, &sql_cmp_vals);
         assert_eq!(res, expected);
@@ -357,7 +356,7 @@ pub fn test_index_iter() {
             data: Some(Data::Int64Value(*idxval)),
             ..Default::default()
         };
-        let idx_sql_vals = vec![RefCell::new(idx_sql_val)];
+        let idx_sql_vals = vec![idx_sql_val];
         serialized_page =
             indexkey::insert_key_from_values(&serialized_page, 1, &idx_sql_vals, i, false).unwrap();
     }
@@ -414,7 +413,7 @@ pub fn test_index_scan() {
             data: Some(Data::Int64Value(*idxval)),
             ..Default::default()
         };
-        let idx_sql_vals = vec![RefCell::new(idx_sql_val)];
+        let idx_sql_vals = vec![idx_sql_val];
         serialized_page =
             indexkey::insert_key_from_values(&serialized_page, oid_key, &idx_sql_vals, i, false)
                 .unwrap();
@@ -575,12 +574,12 @@ pub fn test_index_scan() {
             ..Default::default()
         };
         let start_cmp_vals = if start_val > 0 {
-            vec![RefCell::new(start_sql_val)]
+            vec![start_sql_val]
         } else {
             vec![]
         };
         let end_cmp_vals = if end_val > 0 {
-            vec![RefCell::new(end_sql_val)]
+            vec![end_sql_val]
         } else {
             vec![]
         };
@@ -638,13 +637,13 @@ fn test_index_scan_compound_key() {
         data: Some(Data::StringValue("aaa".to_string())),
         is_constant: false,
     };
-    let idx_head_val_ref = RefCell::new(idx_head_val.clone());
+    let idx_head_val_ref = idx_head_val.clone();
     for (i, idxval) in idx_values.iter().enumerate() {
         let idx_sql_val = SqlValuePb {
             data: Some(Data::Int64Value(*idxval)),
             ..Default::default()
         };
-        let idx_sql_vals = vec![idx_head_val_ref.clone(), RefCell::new(idx_sql_val)];
+        let idx_sql_vals = vec![idx_head_val_ref.clone(), idx_sql_val];
         serialized_page =
             indexkey::insert_key_from_values(&serialized_page, oid_key, &idx_sql_vals, i, false)
                 .unwrap();
@@ -765,12 +764,12 @@ fn test_index_scan_compound_key() {
             ..Default::default()
         };
         let start_cmp_vals = if has_lb {
-            vec![idx_head_val_ref.clone(), RefCell::new(start_sql_val)]
+            vec![idx_head_val_ref.clone(), start_sql_val]
         } else {
             vec![]
         };
         let end_cmp_vals = if has_ub {
-            vec![idx_head_val_ref.clone(), RefCell::new(end_sql_val)]
+            vec![idx_head_val_ref.clone(), end_sql_val]
         } else {
             vec![]
         };

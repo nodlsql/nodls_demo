@@ -267,18 +267,17 @@ pub fn translate_update(
     update: &ast::UpdateStmt,
     sqlplan: &mut SqlPlanPb,
 ) -> Result<(), SqlTranslateError> {
+    let mut relupds = vec![];
+    let mut updsegs = vec![];
     for action in &update.actions {
         debug!(
             "Translating UPDATE statement with values: {:?}",
             action.setvals
         );
-        let mut valixs = vec![];
-        let mut updsegs = vec![];
 
         // Set values
         for setval in &action.setvals {
             let val_idx = utils::add_constant_value(sqlplan, &setval.value)?;
-            valixs.push(val_idx);
             updsegs.push(PathUpdPb {
                 upd_op: UpdateOpPb::Update as i32,
                 val_idx: val_idx,
@@ -301,24 +300,23 @@ pub fn translate_update(
             return Err(res.err().unwrap());
         }
         let relupd = res.unwrap();
-        let mut relupds = vec![];
         if !relupd.is_empty() {
-            relupds = vec![ValRelsUpdPb {
+            relupds.push(ValRelsUpdPb {
                 key_val_idx: 0, // one dataset item at a time
                 val_idx: -1,    // unused for rel update
                 relupd: relupd,
-            }];
+            });
         }
-        let set_inst = SqlInstPb {
-            inst: Some(sql_inst_pb::Inst::Update(IUpdatePb {
-                key_val_idx: 0,
-                upd_op: UpdateOpPb::Update as i32,
-                pathupds: updsegs,
-                relupds: relupds,
-            })),
-        };
-        sqlplan.insts.push(set_inst);
     }
+    let set_inst = SqlInstPb {
+        inst: Some(sql_inst_pb::Inst::Update(IUpdatePb {
+            key_val_idx: 0,
+            upd_op: UpdateOpPb::Update as i32,
+            pathupds: updsegs,
+            relupds: relupds,
+        })),
+    };
+    sqlplan.insts.push(set_inst);
     Ok(())
 }
 

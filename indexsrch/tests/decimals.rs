@@ -16,7 +16,6 @@ use indexcapn::indexkey_capnp::index_page;
 use indexsrch::{compare_keys, index_binary_search, SearchRes};
 use rust_decimal::Decimal;
 use sqlinsts::sqlinsts::{sql_value_pb::Data, DecimalValuePb, SqlValuePb};
-use std::cell::RefCell;
 use std::cmp::Ordering;
 
 macro_rules! get_index_page_reader {
@@ -57,8 +56,8 @@ fn test_compare_decimal_key() {
             data: Some(Data::DecimalValue(DecimalValuePb { number, scale })),
             ..Default::default()
         };
-        let sql_cmp_vals = vec![RefCell::new(sql_val)];
-        let idx_sql_vals = vec![RefCell::new(idx_sql_val)];
+        let sql_cmp_vals = vec![sql_val];
+        let idx_sql_vals = vec![idx_sql_val];
         // Create a new index_page Leaf message
         let init_buffer = indexkey::create_page(true);
         let serialized_page =
@@ -96,7 +95,7 @@ fn test_index_binary_search() {
             })),
             ..Default::default()
         };
-        let idx_sql_vals = vec![RefCell::new(idx_sql_val)];
+        let idx_sql_vals = vec![idx_sql_val];
         serialized_page =
             indexkey::insert_key_from_values(&serialized_page, 1, &idx_sql_vals, i, false).unwrap();
     }
@@ -130,7 +129,7 @@ fn test_index_binary_search() {
             })),
             ..Default::default()
         };
-        let sql_cmp_vals = vec![RefCell::new(sql_val)];
+        let sql_cmp_vals = vec![sql_val];
         // Binary search for the key in the index node
         let res = index_binary_search(&entries, &sql_cmp_vals);
         assert_eq!(res, expected, "Failed search for value {:?}", decval);

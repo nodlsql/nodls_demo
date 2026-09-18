@@ -13,9 +13,9 @@
 // limitations under the License.
 
 use indexcapn::indexkey_capnp::{index_page, key_component};
-use sqlinsts::sqlinsts::{sql_value_pb::Data, SqlValuePb};
-use std::{cell::RefCell, vec};
 use indexkey;
+use sqlinsts::sqlinsts::{sql_value_pb::Data, SqlValuePb};
+use std::vec;
 
 macro_rules! get_index_page_reader {
     ($serialized_page:ident) => {
@@ -34,17 +34,17 @@ macro_rules! get_index_page_reader {
 #[test]
 pub fn test_create_page_with_new_key_entry() {
     // Create SqlValuePb values for the new key
-    let mut values: Vec<RefCell<SqlValuePb>> = Vec::new();
+    let mut values: Vec<SqlValuePb> = Vec::new();
     let str_value = SqlValuePb {
         data: Some(Data::StringValue("new_key".to_string())),
         ..Default::default()
     };
-    values.push(RefCell::new(str_value));
+    values.push(str_value);
     let int_value = SqlValuePb {
         data: Some(Data::Int64Value(42)),
         ..Default::default()
     };
-    values.push(RefCell::new(int_value));
+    values.push(int_value);
 
     // Create a new index_page message
     let serialized_page = indexkey::create_page(false);
@@ -88,12 +88,12 @@ pub fn test_insert_key_from_values() {
     let serialized_page = indexkey::create_page(false);
 
     // Append the initial values and get result buffer
-    let mut initial_values: Vec<RefCell<SqlValuePb>> = Vec::new();
+    let mut initial_values: Vec<SqlValuePb> = Vec::new();
     let val1 = SqlValuePb {
         data: Some(Data::StringValue("initial_key".to_string())),
         ..Default::default()
     };
-    initial_values.push(RefCell::new(val1));
+    initial_values.push(val1);
     let res = dupindexkey::insert_key_from_values(&serialized_page, 222, &initial_values, 0, false);
     assert!(res.is_ok());
     let serialized_page = res.unwrap();
@@ -103,17 +103,17 @@ pub fn test_insert_key_from_values() {
     //
 
     // Create new values to insert
-    let mut new_values: Vec<RefCell<SqlValuePb>> = Vec::new();
+    let mut new_values: Vec<SqlValuePb> = Vec::new();
     let new_val1 = SqlValuePb {
         data: Some(Data::StringValue("new_key".to_string())),
         ..Default::default()
     };
-    new_values.push(RefCell::new(new_val1));
+    new_values.push(new_val1);
     let new_val2 = SqlValuePb {
         data: Some(Data::Int64Value(99)),
         ..Default::default()
     };
-    new_values.push(RefCell::new(new_val2));
+    new_values.push(new_val2);
     let serialized_page =
         dupindexkey::insert_key_from_values(&serialized_page, 333, &new_values, 1, false).unwrap();
 
@@ -174,17 +174,17 @@ fn test_insert_keys_from_values() {
         (100 as u32, "string05", 0), // insert at the beginning [>100<, 123, 133, 456]
     ];
     for (id_value, str_val, insert_pos) in insert_values {
-        let mut values: Vec<RefCell<SqlValuePb>> = Vec::new();
+        let mut values: Vec<SqlValuePb> = Vec::new();
         let str_sql_val = SqlValuePb {
             data: Some(Data::StringValue(str_val.to_string())),
             ..Default::default()
         };
-        values.push(RefCell::new(str_sql_val));
+        values.push(str_sql_val);
         let int_sql_val = SqlValuePb {
             data: Some(Data::Int64Value(id_value as i64)),
             ..Default::default()
         };
-        values.push(RefCell::new(int_sql_val));
+        values.push(int_sql_val);
         serialized_page = dupindexkey::insert_key_from_values(
             &serialized_page,
             id_value,
@@ -216,17 +216,17 @@ fn test_insert_keys_from_values() {
 #[test]
 fn test_read_key() {
     let id_value = 123;
-    let mut values: Vec<RefCell<SqlValuePb>> = Vec::new();
+    let mut values: Vec<SqlValuePb> = Vec::new();
     let str_val = SqlValuePb {
         data: Some(Data::StringValue("string0".to_string())),
         ..Default::default()
     };
-    values.push(RefCell::new(str_val));
+    values.push(str_val);
     let int_val = SqlValuePb {
         data: Some(Data::Int64Value(0)),
         ..Default::default()
     };
-    values.push(RefCell::new(int_val));
+    values.push(int_val);
 
     // Create a new index_page Leaf message
     let serialized_page = indexkey::create_page(false);
@@ -269,17 +269,17 @@ fn test_delete_key() {
 
         // Append some entries to the node
         for i in 0..5 {
-            let mut values: Vec<RefCell<SqlValuePb>> = Vec::new();
+            let mut values: Vec<SqlValuePb> = Vec::new();
             let str_sql_val = SqlValuePb {
                 data: Some(Data::StringValue(format!("string{}", i))),
                 ..Default::default()
             };
-            values.push(RefCell::new(str_sql_val));
+            values.push(str_sql_val);
             let int_sql_val = SqlValuePb {
                 data: Some(Data::Int64Value(i)),
                 ..Default::default()
             };
-            values.push(RefCell::new(int_sql_val));
+            values.push(int_sql_val);
             let id = i + 1000;
             serialized_page = dupindexkey::insert_key_from_values(
                 &serialized_page,
@@ -326,12 +326,12 @@ fn test_insert_duplicate_key() {
                 "test insert duplicate key - inserting key with value {} and ids {:?} at pos {}",
                 val, ids, pos
             );
-            let mut values: Vec<RefCell<SqlValuePb>> = Vec::new();
+            let mut values: Vec<SqlValuePb> = Vec::new();
             let sql_val = SqlValuePb {
                 data: Some(Data::Int64Value(val)),
                 ..Default::default()
             };
-            values.push(RefCell::new(sql_val));
+            values.push(sql_val);
 
             let mut key_found = false;
             for id in ids {
@@ -394,12 +394,12 @@ fn test_delete_duplicate_key() {
     let mut serialized_page = indexkey::create_page(false);
 
     for (pos, val, ids) in test_entries {
-        let mut values: Vec<RefCell<SqlValuePb>> = Vec::new();
+        let mut values: Vec<SqlValuePb> = Vec::new();
         let sql_val = SqlValuePb {
             data: Some(Data::Int64Value(val)),
             ..Default::default()
         };
-        values.push(RefCell::new(sql_val));
+        values.push(sql_val);
 
         let mut key_found = false;
         for id in ids {
