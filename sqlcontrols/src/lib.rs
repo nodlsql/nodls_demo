@@ -454,15 +454,15 @@ fn irel_exec(
         return Ok("".to_string());
     }
     let rels_data_slice: &[u8] = &data_part[..data_size as usize];
-    let res = relpart::get_rel_successors(rels_data_slice, irel.rel_id);
+    let res = relpart::get_rel_elts(rels_data_slice, irel.rel_id);
     if let Ok(succs) = res {
         debug!(
             "irel_exec - Item ID {} relid: {} succs: {:?}",
             oid, irel.rel_id, succs
         );
         for succ in succs {
-            debug!("Relationship traversal - successor item ID: {}", succ);
-            // Set the successor OID value to the target key val idx
+            debug!("Relationship traversal - element item ID: {}", succ);
+            // Set the element OID value to the target key val idx
             values[irel.tgt_key_val_idx as usize].borrow_mut().data =
                 Some(sql_value_pb::Data::OidValue(succ));
             // Process next instruction if any
@@ -517,9 +517,11 @@ fn rel_update_exec(
                 }
                 None => {
                     // No matching pkey entry
+                    let (start_keys, _, _, _) = utils::build_index_scan_keys(&r.ranges, values, 0);
+                    let pk_json = jbparse::sqlvalues_to_summary_jsonvalue(start_keys);
                     return Err(SqlExecError::ExecutionError(format!(
-                        "No matching pkey entry for relationship {}",
-                        relupd.name
+                        "No matching pkey entry '{}' for relationship {}",
+                        pk_json.as_str().unwrap(), relupd.name
                     )));
                 }
             }
@@ -665,7 +667,9 @@ fn iupdate_exec(
     // Index keys are removed by next IIndex instructions
     next_select_stmt_exec!(ctxt, plan, offset + 1, values, proj_cols, proj_rows);
 
-    ctxt.increment_count(sqlexet::UpdCounter::Update(1));
+    if !iupdate.pathupds.is_empty() {
+        ctxt.increment_count(sqlexet::UpdCounter::Update(1));
+    }
     Ok("".to_string())
 }
 
@@ -839,7 +843,7 @@ fn idatapath_exec(
             // fetch the target data parts
             if let Ok(rels) = relpart {
                 for (relid, succs) in rels {
-                    debug!("Rel ID: 0x{:x}, successors: {:?}", relid, succs);
+                    debug!("Rel ID: 0x{:x}, elts: {:?}", relid, succs);
                     // Find the rel name in the idatapath inst
                     let rel_desc_opt = idatapath
                         .rel_descs
@@ -856,7 +860,7 @@ fn idatapath_exec(
                         continue;
                     }
                     let rel_desc = rel_desc_opt.unwrap();
-                    let new_res_str = utils::populate_rel_pkvals_for_succs(
+                    let new_res_str = utils::populate_rel_elts_pkvals(
                         ctxt,
                         &rel_desc.name,
                         &succs,
@@ -1101,26 +1105,8 @@ fn index_scan(
         ranges[0].lb_nb_vals
     };
     for in_val_offset in 0..in_pred_nb_vals {
-        let mut start_keys = vec![];
-        let mut start_cmps = vec![];
-        let mut end_keys = vec![];
-        let mut end_cmps = vec![];
-        for r in ranges {
-            if r.lb_val_idx < 0 {
-                continue;
-            }
-            start_keys.push(values[(r.lb_val_idx + in_val_offset) as usize].clone());
-            start_cmps.push(CompOperatorPb::try_from(r.lb_op).unwrap());
-            if r.ub_val_idx < 0 {
-                continue;
-            }
-            end_keys.push(values[r.ub_val_idx as usize].clone());
-            end_cmps.push(CompOperatorPb::try_from(r.ub_op).unwrap());
-        }
-        debug!("Index scan start keys: {:?}", start_keys);
-        debug!("Index scan start cmps: {:?}", start_cmps);
-        debug!("Index scan end keys: {:?}", end_keys);
-        debug!("Index scan end cmps: {:?}", end_cmps);
+        let (start_keys, start_cmps, end_keys, end_cmps) =
+            utils::build_index_scan_keys(ranges, values, in_val_offset);
         let result = indexbt::bt_index_scan(
             ctxt,
             root_id,
@@ -1188,7 +1174,7 @@ fn iindex_exec(
                     seg_str, curr_id, e
                 )));
             };
-            sqlvals.push(RefCell::new(res.unwrap()));
+            sqlvals.push(res.unwrap());
         }
         let res = if iindex.op == IndexOpPb::InsertKey as i32 {
             indexbt::bt_insert_key(ctxt, iindex.root_id, curr_id, &sqlvals, unique)

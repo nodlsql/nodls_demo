@@ -180,7 +180,7 @@ fn read_key_components<R: IndexKeyReader>(key_reader: &R) -> Vec<SqlValuePb> {
 
 pub fn build_index_key<T: IndexKeyBuilder>(
     id_values: &[MtOidT],
-    values: &Vec<RefCell<SqlValuePb>>,
+    values: &Vec<SqlValuePb>,
     key_builder: &mut T,
 ) -> () {
     key_builder.set_id_values(id_values);
@@ -190,7 +190,7 @@ pub fn build_index_key<T: IndexKeyBuilder>(
 
     // Populate each KeyComponent
     for (idx, value_cell) in values.iter().enumerate() {
-        let value = value_cell.borrow();
+        let value = value_cell;
         let mut component = cmpts.reborrow().get(idx as u32);
 
         // Set the appropriate union field based on the SqlValuePb data type
@@ -281,7 +281,7 @@ pub fn get_index_key_entries<'a>(
 pub fn insert_key_from_values(
     serialized_page: &[u8],
     oid_key: MtOidT,
-    values: &Vec<RefCell<SqlValuePb>>,
+    values: &Vec<SqlValuePb>,
     insert_pos: usize,
     key_found: bool,
 ) -> Result<Vec<u8>, String> {

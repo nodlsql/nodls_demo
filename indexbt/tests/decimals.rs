@@ -15,7 +15,6 @@
 use indexcapn::indexkey_capnp::index_page;
 use rust_decimal::Decimal;
 use sqlinsts::sqlinsts::{sql_value_pb::Data, CompOperatorPb, DecimalValuePb, SqlValuePb};
-use std::cell::RefCell;
 use std::vec;
 
 macro_rules! get_index_page_reader {
@@ -57,7 +56,7 @@ fn test_insert_decimal_key() {
             data: Some(data),
             ..Default::default()
         };
-        let idx_sql_vals = vec![RefCell::new(idx_sql_val)];
+        let idx_sql_vals = vec![idx_sql_val];
 
         let insert_res = indexbt::insert_key(
             *id, // id value to insert
@@ -104,13 +103,13 @@ fn test_insert_decimal_key() {
 
     // 2 - Scan from a specific key
     let start_dec = Decimal::new(81, 1);
-    let start_key = vec![RefCell::new(SqlValuePb {
+    let start_key = vec![SqlValuePb {
         data: Some(Data::DecimalValue(DecimalValuePb {
             number: start_dec.mantissa() as i64,
             scale: start_dec.scale() as u32,
         })),
         ..Default::default()
-    })];
+    }];
     let start_cmp = vec![CompOperatorPb::Gt];
     let (ids, scan_sts) = indexsrch::index_scan(&serialized_page, &start_key, &start_cmp, &vec![], &vec![], true)
         .unwrap()
@@ -148,7 +147,7 @@ fn test_index_binary_search() {
             })),
             ..Default::default()
         };
-        let idx_sql_vals = vec![RefCell::new(idx_sql_val)];
+        let idx_sql_vals = vec![idx_sql_val];
         serialized_page = indexkey::insert_key_from_values(&serialized_page, i as u32 + 20, &idx_sql_vals, i, false).unwrap();
     }
 
@@ -183,7 +182,7 @@ fn test_index_binary_search() {
             })),
             ..Default::default()
         };
-        let sql_cmp_vals = vec![RefCell::new(sql_val)];
+        let sql_cmp_vals = vec![sql_val];
         // Binary search for the key in the index node
         let res = indexsrch::index_binary_search(&entries, &sql_cmp_vals);
         assert_eq!(res, expected, "Failed search for value {:?}", decval);

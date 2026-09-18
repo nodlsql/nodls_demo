@@ -260,15 +260,11 @@ impl CommandPrompt {
                 }
 
                 // Process the command
-                terminal::disable_raw_mode()?;
+               terminal::disable_raw_mode()?; 
                 execute!(
                     stdout,
-                    SetForegroundColor(Color::Blue),
-                    MoveToColumn(0),
-                    Print(format!("Executing: {}\n", complete_statement)), // No semicolon displayed
-                    ResetColor
+                    MoveToColumn(0)
                 )?;
-
                 let res = sqlcontrols::stmt_exec(ctxt, &complete_statement);
                 match res {
                     Ok(rows) => {

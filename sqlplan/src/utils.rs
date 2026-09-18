@@ -318,6 +318,7 @@ pub fn add_constant_value(
     }
     Ok(val_idx)
 }
+
 pub fn like_pattern_to_regex(pattern: &String) -> String {
     let mut regex_pattern = String::from("^");
     for ch in pattern.chars() {
@@ -426,7 +427,7 @@ fn fmt_inst(inst: &SqlInstPb) -> String {
                 rels = format!("{}{{name={} id={} pk_segs={:?}}},", rels, r.name, r.id, r.pk_segs);
             }
             format!(
-                "IDatapath pathstr={} pathsegs={:?} jsonpath={:?} parent_path={:?} ds_name={} alias={} key_val_idx={} val_idx={} phase={} rels={}",
+                "IDatapath pathstr=\"{}\" pathsegs={:?} jsonpath={:?} parent_path={:?} ds_name={} alias={} key_val_idx={} val_idx={} phase={} rels={}",
                 a.path_str, a.pathsegs, a.jsonpath, a.parent_path, a.ds_name, a.alias, a.key_val_idx, a.val_idx, a.phase, rels
             )
         }
@@ -489,7 +490,7 @@ fn fmt_inst(inst: &SqlInstPb) -> String {
         Some(sql_inst_pb::Inst::Update(u)) => {
             let mut pathupds_str = "".to_string();
             for pu in &u.pathupds {
-                let pu_str_part = format!("{:?}, ", pu);
+                let pu_str_part = format!("{{upd_op={:?} val_idx={} pathsegs={:?}}},", pu.upd_op, pu.val_idx, pu.pathsegs);
                 pathupds_str = format!("{}{}", pathupds_str, pu_str_part);
             }
             let relupds_str = fmt_relupd(&u.relupds);

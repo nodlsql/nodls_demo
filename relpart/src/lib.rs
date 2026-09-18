@@ -49,7 +49,7 @@ macro_rules! capn_access_check {
     };
 }
 
-pub fn add_rel_successors(
+pub fn add_rel_elts(
     ctx: &mut impl SqlExeTrait,
     rel_id: MtOidT,
     inverse: bool,
@@ -69,7 +69,7 @@ pub fn add_rel_successors(
     if sts != STS_SUCCESS {
         // Create the rel_part if it doesn't exist
         let mut new_rel_buffer = create_relpart();
-        insert_rel_succs(&mut new_rel_buffer, rel_id, oid_keys)?;
+        insert_rel_elts(&mut new_rel_buffer, rel_id, oid_keys)?;
         let sts = ctx.write_relpart(
             ctx.get_tranid(),
             rel_part_id,
@@ -87,7 +87,7 @@ pub fn add_rel_successors(
     } else {
         // Update existing rel_part
         let mut rel_buffer = data_part[..data_size as usize].to_vec();
-        insert_rel_succs(&mut rel_buffer, rel_id, oid_keys)?;
+        insert_rel_elts(&mut rel_buffer, rel_id, oid_keys)?;
         let sts = ctx.write_relpart(
             ctx.get_tranid(),
             rel_part_id,
@@ -105,7 +105,7 @@ pub fn add_rel_successors(
     }
 }
 
-pub fn rm_rel_successors(
+pub fn rm_rel_elts(
     ctx: &mut impl SqlExeTrait,
     rel_id: MtOidT,
     inverse: bool,
@@ -134,7 +134,7 @@ pub fn rm_rel_successors(
     }
     // Update existing rel_part
     let mut rel_buffer = data_part[..data_size as usize].to_vec();
-    let rm_count = remove_rel_succs(&mut rel_buffer, rel_id, oid_keys)?;
+    let rm_count = remove_rel_elts(&mut rel_buffer, rel_id, oid_keys)?;
     let sts = ctx.write_relpart(
         ctx.get_tranid(),
         rel_part_id,
@@ -159,7 +159,7 @@ pub fn create_relpart() -> Vec<u8> {
     serialized_rel
 }
 
-pub fn insert_rel_succs(
+pub fn insert_rel_elts(
     rel_buffer: &mut Vec<u8>,
     rel_id: MtOidT,
     oid_keys: &Vec<MtOidT>,
@@ -174,8 +174,8 @@ pub fn insert_rel_succs(
     let root = capn_access_check!(message_reader.get_root::<rel_part::Reader>(), "get root");
     let rels = capn_access_check!(root.get_rels(), "get rels");
 
-    // Find existing rel with matching rid; check for duplicate successor
-    let mut add_rel_succs = vec![];
+    // Find existing rel with matching rid; check for duplicate element
+    let mut add_rel_elts = vec![];
     let mut rid_found_pos = None;
     for i in 0..rels.len() {
         let r = rels.get(i);
@@ -185,14 +185,14 @@ pub fn insert_rel_succs(
                 for k in 0..oid_keys.len() {
                     for j in 0..succs.len() {
                         if succs.get(j) == oid_keys[k] {
-                            // Error out if duplicate successor is found
+                            // Error out if duplicate element is found
                             return Err(SqlRelAccessError::RelUpdateFailed(
-                                "successor already exists".to_string(),
+                                "element already exists".to_string(),
                             ));
                         }
                     }
                     // Not found, append to add_rel_succs
-                    add_rel_succs.push(oid_keys[k]);
+                    add_rel_elts.push(oid_keys[k]);
                 }
             }
             break;
@@ -218,18 +218,18 @@ pub fn insert_rel_succs(
         if Some(i as u32) == rid_found_pos {
             let succs = capn_access_check!(src.which(), "found relid, get existing");
             let existing = match succs {
-                rel::Which::RSuccs(s) => capn_access_check!(s, "get successors"),
+                rel::Which::RSuccs(s) => capn_access_check!(s, "get elements"),
                 rel::Which::RSet(_) => {
                     return Err(SqlRelAccessError::RelUpdateFailed("RelSet NYI".to_string()));
                 }
             };
-            let new_len = existing.len() + add_rel_succs.len() as u32;
+            let new_len = existing.len() + add_rel_elts.len() as u32;
             let mut new_succs = dst.init_r_succs(new_len);
             for j in 0..existing.len() {
                 new_succs.set(j, existing.get(j));
             }
-            for k in 0..add_rel_succs.len() {
-                new_succs.set(existing.len() + k as u32, add_rel_succs[k]);
+            for k in 0..add_rel_elts.len() {
+                new_succs.set(existing.len() + k as u32, add_rel_elts[k]);
                 added_count += 1;
             }
         } else {
@@ -237,12 +237,12 @@ pub fn insert_rel_succs(
             // Copy existing rel as-is in write buffer
             match existing {
                 rel::Which::RSuccs(s) => {
-                    let succs = capn_access_check!(s, "get successors");
-                    capn_access_check!(dst.set_r_succs(succs), "set successors");
+                    let succs = capn_access_check!(s, "get elements");
+                    capn_access_check!(dst.set_r_succs(succs), "set elements");
                 }
                 rel::Which::RSet(rs) => {
-                    let rset = capn_access_check!(rs, "get successors");
-                    capn_access_check!(dst.set_r_set(rset), "set successor set");
+                    let rset = capn_access_check!(rs, "get elements");
+                    capn_access_check!(dst.set_r_set(rset), "set element set");
                 }
             }
         }
@@ -253,7 +253,7 @@ pub fn insert_rel_succs(
         let mut new_rel = new_rels.reborrow().get(rels.len() as u32);
         new_rel.set_rid(rel_id);
         let mut succs = new_rel.init_r_succs(oid_keys.len() as u32);
-        // Set the new successor keys
+        // Set the new element keys
         for k in 0..oid_keys.len() {
             succs.set(k as u32, oid_keys[k]);
             added_count += 1;
@@ -271,17 +271,17 @@ pub fn insert_rel_succs(
     Ok(added_count)
 }
 
-pub fn remove_rel_succs(
+pub fn remove_rel_elts(
     rel_buffer: &mut Vec<u8>,
     rel_id: MtOidT,
     oid_keys: &Vec<MtOidT>,
 ) -> Result<u32, SqlRelAccessError> {
     debug!(
-        "remove_rel_succs before image - rel_id: {} relPart: {:?}",
+        "remove_rel_elts before image - rel_id: {} relPart: {:?}",
         rel_id,
         display_relpart(rel_buffer)
     );
-    // Remove successors for a given rel_id
+    // Remove elements for a given rel_id
     let message_reader = capn_access_check!(
         ::capnp::serialize::read_message(
             &mut std::io::Cursor::new(rel_buffer.as_slice()),
@@ -306,19 +306,19 @@ pub fn remove_rel_succs(
         dst.set_rid(src.get_rid());
         if src.get_rid() == rel_id {
             rel_found = true;
-            // Filter out the specified successor keys
+            // Filter out the specified element keys
             if let Ok(rel::Which::RSuccs(Ok(succs))) = src.which() {
-                let filtered_succs: Vec<MtOidT> = (0..succs.len())
+                let filtered_elts: Vec<MtOidT> = (0..succs.len())
                     .map(|j| succs.get(j))
                     .filter(|s| !oid_keys.contains(s))
                     .collect();
-                del_count += succs.len() as u32 - filtered_succs.len() as u32;
-                if filtered_succs.is_empty() {
+                del_count += succs.len() as u32 - filtered_elts.len() as u32;
+                if filtered_elts.is_empty() {
                     empty_rids.push(src.get_rid());
                 }
-                let mut new_succs = dst.init_r_succs(filtered_succs.len() as u32);
-                for j in 0..filtered_succs.len() {
-                    new_succs.set(j as u32, filtered_succs[j]);
+                let mut new_succs = dst.init_r_succs(filtered_elts.len() as u32);
+                for j in 0..filtered_elts.len() {
+                    new_succs.set(j as u32, filtered_elts[j]);
                 }
             } else {
                 // If it's not RSuccs, copy as-is (or handle RSet if needed)
@@ -336,8 +336,8 @@ pub fn remove_rel_succs(
             let existing = capn_access_check!(src.which(), "get existing");
             match existing {
                 rel::Which::RSuccs(s) => {
-                    let rsuc = capn_access_check!(s, "get successors");
-                    capn_access_check!(dst.set_r_succs(rsuc), "set successors");
+                    let rsuc = capn_access_check!(s, "get elements");
+                    capn_access_check!(dst.set_r_succs(rsuc), "set elements");
                 }
                 rel::Which::RSet(rs) => {
                     let rset = capn_access_check!(rs, "get rset");
@@ -353,7 +353,7 @@ pub fn remove_rel_succs(
     }
     if del_count != oid_keys.len() as u32 {
         return Err(SqlRelAccessError::RelUpdateFailed(
-            "Successor not found".to_string(),
+            "Element not found".to_string(),
         ));
     }
     // If any rels got empty, remove them from the new_rels list
@@ -370,8 +370,8 @@ pub fn remove_rel_succs(
                 let existing = capn_access_check!(r.which(), "get existing");
                 match existing {
                     rel::Which::RSuccs(s) => {
-                        let rsuc = capn_access_check!(s, "get successors");
-                        capn_access_check!(dst.set_r_succs(rsuc), "set successors");
+                        let rsuc = capn_access_check!(s, "get elements");
+                        capn_access_check!(dst.set_r_succs(rsuc), "set elements");
                     }
                     rel::Which::RSet(rs) => {
                         let rset = capn_access_check!(rs, "get rset");
@@ -420,13 +420,13 @@ pub fn get_rels(rel_buffer: &[u8]) -> ::capnp::Result<Vec<(MtOidT, Vec<MtOidT>)>
     Ok(result)
 }
 
-pub fn get_rel_successors(rel_buffer: &[u8], rel_id: MtOidT) -> ::capnp::Result<Vec<MtOidT>> {
+pub fn get_rel_elts(rel_buffer: &[u8], rel_id: MtOidT) -> ::capnp::Result<Vec<MtOidT>> {
     let message_reader = ::capnp::serialize::read_message(
         &mut std::io::Cursor::new(rel_buffer),
         ::capnp::message::ReaderOptions::new(),
     )?;
     debug!(
-        "get_rel_successors - rel_id: {} relPart: {:?}",
+        "get_rel_elts - rel_id: {} relPart: {:?}",
         rel_id,
         display_relpart(rel_buffer)
     );
@@ -444,7 +444,7 @@ pub fn get_rel_successors(rel_buffer: &[u8], rel_id: MtOidT) -> ::capnp::Result<
             }
         }
     }
-    Ok(vec![]) // Return empty if no matching rel or no successors
+    Ok(vec![]) // Return empty if no matching rel or no elements
 }
 
 pub fn display_relpart(rel_buffer: &[u8]) -> String {

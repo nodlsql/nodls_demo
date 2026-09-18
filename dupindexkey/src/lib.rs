@@ -72,7 +72,7 @@ pub fn get_index_key_entries<'a>(
 pub fn insert_key_from_values(
     serialized_page: &[u8],
     id_key: MtOidT,
-    values: &Vec<RefCell<SqlValuePb>>,
+    values: &Vec<SqlValuePb>,
     insert_pos: usize,
     key_found: bool,
 ) -> Result<Vec<u8>, String> {

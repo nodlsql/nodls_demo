@@ -17,7 +17,7 @@ use sqlexet::{MtOidT, SqlExeTrait, MIN_USER_DATASET_ID, MTS_OBJNOTFOUND, STS_SUC
 use sqlinsts::sqlinsts::ValRelsUpdPb;
 use sqlinsts::sqlinsts::{
     sql_value_pb, sql_value_pb::Data, CompOperatorPb, DecimalValuePb, EvalPhasePb, OperPb,
-    SqlValuePb, UpdateOpPb,
+    SqlValuePb, UpdateOpPb, RangePb,
 };
 use std::cell::RefCell;
 use std::cmp::Ordering;
@@ -400,8 +400,8 @@ pub fn get_rel_target_pkvals(
     Some(sqlvals)
 }
 
-// Populate PK values for the successors into json_val
-pub fn populate_rel_pkvals_for_succs(
+// Populate PK values for the element items into json_val
+pub fn populate_rel_elts_pkvals(
     ctxt: &mut impl SqlExeTrait,
     rel_name: &String,
     succs: &Vec<u32>,
@@ -410,11 +410,11 @@ pub fn populate_rel_pkvals_for_succs(
 ) -> String {
     let mut result = json_val.clone();
     for succ_id in succs {
-        // Get the pk values for the successor target
+        // Get the pk values for the element target
         let vals = get_rel_target_pkvals(ctxt, *succ_id, pk_segs);
         if vals.is_none() {
             debug!(
-                "Failed to get PK values for target id 0x{:x} of rel '{}'",
+                "Failed to get PK values for element target id 0x{:x} of rel '{}'",
                 succ_id, rel_name
             );
             continue;
@@ -434,7 +434,7 @@ pub fn populate_rel_pkvals_for_succs(
     result
 }
 
-// Add or delete rel successors for the primary item rels
+// Add or delete rel elements for the primary item rels
 pub fn update_rels(
     ctxt: &mut impl SqlExeTrait,
     upd_op: UpdateOpPb,
@@ -467,14 +467,14 @@ pub fn update_rels(
     }
     match upd_op {
         UpdateOpPb::Insert => {
-            if let Err(e) = relpart::add_rel_successors(ctxt, rel_id, inverse, curr_id, succs) {
+            if let Err(e) = relpart::add_rel_elts(ctxt, rel_id, inverse, curr_id, succs) {
                 return Err(SqlExecError::ExecutionError(e.to_string()));
             } else if !inverse {
                 ctxt.increment_count(sqlexet::UpdCounter::AddElt(succs.len() as i32));
             }
         }
         UpdateOpPb::Delete => {
-            if let Err(e) = relpart::rm_rel_successors(ctxt, rel_id, inverse, curr_id, succs) {
+            if let Err(e) = relpart::rm_rel_elts(ctxt, rel_id, inverse, curr_id, succs) {
                 return Err(SqlExecError::ExecutionError(e.to_string()));
             } else if !inverse {
                 ctxt.increment_count(sqlexet::UpdCounter::RmElt(succs.len() as i32));
@@ -532,31 +532,31 @@ pub fn delete_inv_rel_predecessors(
     let item_ids = vec![item_id];
     for (relid, succs) in rels {
         for succ in succs {
-            debug!("Deleting rel ID: {}, successor item: {}", relid, succ);
-            // Fetch the rel part of the successor items
+            debug!("Deleting rel ID: {}, element item: {}", relid, succ);
+            // Fetch the rel part of the element items
             let sts = ctxt.get_relpart(
                 ctxt.get_ltime(),
-                succ, // just peek one successor to get the rel part format, assuming same rel part format for all successors
+                succ, // just peek one element to get the rel part format, assuming same rel part format for all elements
                 true, // inverse rel
                 &mut inv_data_part,
                 &mut inv_data_size,
             );
             if sts != STS_SUCCESS {
                 return Err(SqlExecError::ExecutionError(format!(
-                            "Failed to get inverse rel part for successor item ID {} during delete, sts: 0x{:x}",
+                            "Failed to get inverse rel part for element item ID {} during delete, sts: 0x{:x}",
                             succ, sts
                         )));
             }
-            // delete the where clause ids from the successor inverse rel
-            match relpart::rm_rel_successors(ctxt, relid, true, succ, &item_ids) {
+            // delete the where clause ids from the element inverse rel
+            match relpart::rm_rel_elts(ctxt, relid, true, succ, &item_ids) {
                 Ok(c) => {
                     debug!(
-                        "Deleted {} inverse rel successors for successor item ID {}",
+                        "Deleted {} inverse rel elements for element item ID {}",
                         c, succ
                     );
                 }
                 Err(e) => {
-                    debug!("Failed to delete inverse rel successor: {}", e);
+                    debug!("Failed to delete inverse rel element: {}", e);
                 }
             }
         }
@@ -690,3 +690,39 @@ pub fn insert_value(
     }
     return Ok(obj_key);
 }
+
+pub fn build_index_scan_keys(
+    ranges: &Vec<RangePb>,
+    values: &Vec<RefCell<SqlValuePb>>,
+    in_val_offset: i32,
+) -> (
+    Vec<SqlValuePb>,
+    Vec<CompOperatorPb>,
+    Vec<SqlValuePb>,
+    Vec<CompOperatorPb>,
+) {
+    let mut start_keys = vec![];
+    let mut start_cmps = vec![];
+    let mut end_keys = vec![];
+    let mut end_cmps = vec![];
+    for r in ranges {
+        if r.lb_val_idx < 0 {
+            continue;
+        }
+        let val = values[(r.lb_val_idx + in_val_offset) as usize].borrow();
+        start_keys.push(val.clone());
+        start_cmps.push(CompOperatorPb::try_from(r.lb_op).unwrap());
+        if r.ub_val_idx < 0 {
+            continue;
+        }
+        let val = values[r.ub_val_idx as usize].borrow();
+        end_keys.push(val.clone());
+        end_cmps.push(CompOperatorPb::try_from(r.ub_op).unwrap());
+    }
+    debug!("Index scan start keys: {:?}", start_keys);
+    debug!("Index scan start cmps: {:?}", start_cmps);
+    debug!("Index scan end keys: {:?}", end_keys);
+    debug!("Index scan end cmps: {:?}", end_cmps);
+    (start_keys, start_cmps, end_keys, end_cmps)
+}
+

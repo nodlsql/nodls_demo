@@ -24,8 +24,8 @@ pub fn test_insert_rel() {
     let mut modified_bytes = relpart_bytes.clone();
 
     // 1 - insert a rel into an empty relpart
-    relpart::insert_rel_succs(&mut modified_bytes, rel_id, &vec![id_key])
-        .expect("Failed to insert rel successor");
+    relpart::insert_rel_elts(&mut modified_bytes, rel_id, &vec![id_key])
+        .expect("Failed to insert rel element");
 
     // Verify the modification
     let message_reader = ::capnp::serialize::read_message(
@@ -55,10 +55,10 @@ pub fn test_insert_rel() {
     assert_eq!(succs.len(), 1);
     assert_eq!(succs.get(0), id_key);
 
-    // 2 - insert another successor key into the same rel
+    // 2 - insert another element key into the same rel
     let id_key2 = 789;
-    relpart::insert_rel_succs(&mut modified_bytes, rel_id, &vec![id_key2])
-        .expect("Failed to insert second rel successor");
+    relpart::insert_rel_elts(&mut modified_bytes, rel_id, &vec![id_key2])
+        .expect("Failed to insert second rel element");
 
     // Verify the modification
     let message_reader = ::capnp::serialize::read_message(
@@ -87,10 +87,10 @@ pub fn test_insert_rel() {
     assert_eq!(succs.get(0), id_key);
     assert_eq!(succs.get(1), id_key2);
 
-    // 3 - insert a rel successor for a new rel
+    // 3 - insert a rel element for a new rel
     let rel_id2 = 456;
-    relpart::insert_rel_succs(&mut modified_bytes, rel_id2, &vec![id_key])
-        .expect("Failed to insert rel successor for new rel");
+    relpart::insert_rel_elts(&mut modified_bytes, rel_id2, &vec![id_key])
+        .expect("Failed to insert rel element for new rel");
     let message_reader = ::capnp::serialize::read_message(
         &mut std::io::Cursor::new(modified_bytes.as_slice()),
         ::capnp::message::ReaderOptions::new(),
@@ -126,17 +126,17 @@ pub fn test_insert_rel() {
     assert_eq!(succs2.len(), 1);
     assert_eq!(succs2.get(0), id_key);
 
-    // 4 - insert two successor keys into the same rel, with one duplicate
+    // 4 - insert two element keys into the same rel, with one duplicate
     let id_key3 = 999;
-    let res = relpart::insert_rel_succs(&mut modified_bytes, rel_id, &vec![id_key2, id_key3]);
+    let res = relpart::insert_rel_elts(&mut modified_bytes, rel_id, &vec![id_key2, id_key3]);
     match res {
         Ok(_) => {
             // This should not happen, as id_key2 is a duplicate
-            panic!("Expected error for duplicate successor, but insert succeeded");
+            panic!("Expected error for duplicate element, but insert succeeded");
         }
         Err(e) => assert!(
             e.to_string().contains("already exists"),
-            "Expected error for duplicate successor"
+            "Expected error for duplicate element"
         ),
     }
 
@@ -167,15 +167,15 @@ pub fn test_insert_rel() {
 }
 
 #[test]
-pub fn test_remove_rel_succs() {
+pub fn test_remove_rel_elts() {
     let test_data = vec![
         // Initial data, remove params, expected result (rm count, [succs]), error msg if any
-        // Remove one successor
+        // Remove one element
         ([(123, vec![456, 789]), (123, vec![456]), (1, vec![789])], ""),
-        // Remove all successors
+        // Remove all elements
         ([(123, vec![456]), (123, vec![456, 789]), (2, vec![])], ""),
-        // Remove  non-existent successor (should have no effect)
-        ([(123, vec![456, 789]), (123, vec![555]), (0, vec![456, 789])], "Successor not found"),
+        // Remove  non-existent element (should have no effect)
+        ([(123, vec![456, 789]), (123, vec![555]), (0, vec![456, 789])], "Element not found"),
         // Remove  non-existent rel id (should have no effect)
         ([(123, vec![]), (125, vec![456]), (0, vec![456, 789])], "Relationship not found"),
     ];
@@ -192,10 +192,10 @@ pub fn test_remove_rel_succs() {
         let expected_id_keys = &test_case[2].1;
 
         // Insert a rel successor to set up the test
-        relpart::insert_rel_succs(&mut init_buf, init_rel_id, &init_id_keys)
+        relpart::insert_rel_elts(&mut init_buf, init_rel_id, &init_id_keys)
             .expect("successor already exists");
         // Remove the successor for the rel_id
-        let res = relpart::remove_rel_succs(&mut init_buf, rel_id, &id_keys);
+        let res = relpart::remove_rel_elts(&mut init_buf, rel_id, &id_keys);
         match res {
             Ok(rm_count) => {
                 if !error_msg.is_empty() {
@@ -205,20 +205,20 @@ pub fn test_remove_rel_succs() {
                     rm_count, expected_rm_count,
                     "Expected rm_count does not match"
                 );
-                let succs = relpart::get_rel_successors(&init_buf, 123)
-                    .expect("Failed to get rel successors after removal");
+                let succs = relpart::get_rel_elts(&init_buf, rel_id)
+                    .expect("Failed to get rel elements after removal");
                 assert_eq!(
                     succs.len(),
                     expected_id_keys.len(),
-                    "Expected no successors after removal"
+                    "Expected no elements after removal"
                 );
                 assert_eq!(
                     &succs, expected_id_keys,
-                    "Expected successors do not match after removal"
+                    "Expected elements do not match after removal"
                 );
             }
             Err(e) => {
-                println!("Error message for remove_rel_succs: {}", e);
+                println!("Error message for remove_rel_elts: {}", e);
                 if !error_msg.is_empty() {
                     assert!(
                         e.to_string().contains(error_msg),
@@ -232,7 +232,7 @@ pub fn test_remove_rel_succs() {
 
         // Display the resulting relpart
         println!(
-            "test_remove_rel_succs - RelPart for test case {} : {:?}",
+            "test_remove_rel_elts - RelPart for test case {} : {:?}",
             test_case_num,
             relpart::display_relpart(init_buf.as_slice())
         );

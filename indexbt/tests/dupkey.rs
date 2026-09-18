@@ -15,7 +15,6 @@
 use indexcapn::indexkey_capnp::index_page;
 use indexsrch::SearchRes;
 use sqlinsts::sqlinsts::{sql_value_pb::Data, SqlValuePb};
-use std::cell::RefCell;
 
 macro_rules! get_index_page_reader {
     ($serialized_page:ident) => {
@@ -44,14 +43,14 @@ pub fn test_insert_key() {
 
     for ((val1, val2), id, success_result) in test_data.iter() {
         let ins_key = vec![
-            RefCell::new(SqlValuePb {
+            SqlValuePb {
                 is_constant: true,
                 data: Some(Data::StringValue(val1.to_string())),
-            }),
-            RefCell::new(SqlValuePb {
+            },
+            SqlValuePb {
                 is_constant: true,
                 data: Some(Data::Int64Value(*val2 as i64)),
-            }),
+            },
         ];
         // Call the function to create a page with the new key entry
         let insert_res = indexbt::insert_key(
@@ -86,14 +85,14 @@ pub fn test_insert_key() {
             let srch_res = indexsrch::index_binary_search(
                 &entries,
                 &vec![
-                    RefCell::new(SqlValuePb {
+                    SqlValuePb {
                         is_constant: true,
                         data: Some(Data::StringValue(val1.to_string())),
-                    }),
-                    RefCell::new(SqlValuePb {
+                    },
+                    SqlValuePb {
                         is_constant: true,
                         data: Some(Data::Int64Value(*val2 as i64)),
-                    }),
+                    },
                 ],
             );
             println!(
@@ -133,14 +132,14 @@ fn test_delete_key() {
     // Insert keys
     for ((val1, val2), id, _) in test_data.iter() {
         let ins_key = vec![
-            RefCell::new(SqlValuePb {
+            SqlValuePb {
                 is_constant: true,
                 data: Some(Data::StringValue(val1.to_string())),
-            }),
-            RefCell::new(SqlValuePb {
+            },
+            SqlValuePb {
                 is_constant: true,
                 data: Some(Data::Int64Value(*val2 as i64)),
-            }),
+            },
         ];
         // Call the function to create a page with the new key entry
         let res = indexbt::insert_key(
@@ -159,14 +158,14 @@ fn test_delete_key() {
 
     // Create start key sql value for deletion
     let del_key = vec![
-        RefCell::new(SqlValuePb {
+        SqlValuePb {
             is_constant: true,
             data: Some(Data::StringValue("val2".to_string())),
-        }),
-        RefCell::new(SqlValuePb {
+        },
+        SqlValuePb {
             is_constant: true,
             data: Some(Data::Int64Value(124)),
-        }),
+        },
     ];
 
     // Call the function to delete the key entry
@@ -187,14 +186,14 @@ fn test_delete_key() {
 
     for ((val1, val2), _id, expected) in test_data.iter() {
         let composite_key = vec![
-            RefCell::new(SqlValuePb {
+            SqlValuePb {
                 is_constant: true,
                 data: Some(Data::StringValue(val1.to_string())),
-            }),
-            RefCell::new(SqlValuePb {
+            },
+            SqlValuePb {
                 is_constant: true,
                 data: Some(Data::Int64Value(*val2 as i64)),
-            }),
+            },
         ];
         // Verify keys are there or not
         let srch_res = indexsrch::index_binary_search(&entries, &composite_key);
