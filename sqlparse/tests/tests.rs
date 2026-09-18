@@ -12,10 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use sqlparser::lexer::Lexer;
-use sqlparser::lexer::Tok;
-use sqlparser::{parse_stmt, SqlParseError};
-//use sqlparser::sqlstmt::SqlStmtExprParser;
+use sqlparse::lexer::Lexer;
+use sqlparse::lexer::Tok;
+use sqlparse::{parse_stmt, SqlParseError};
 
 #[test]
 fn lexer_token_sequence() {
@@ -44,7 +43,9 @@ fn lexer_token_sequence() {
             Tok::Not => "Not",
             Tok::Insert => "Insert",
             Tok::Delete => "Delete",
+            Tok::Remove => "Remove",
             Tok::Update => "Update",
+            Tok::Clear => "Clear",
             Tok::Set => "Set",
             Tok::Into => "Into",
             Tok::Values => "Values",
@@ -84,6 +85,7 @@ fn lexer_token_sequence() {
             Tok::CloseBracket => ")",
             Tok::OpenSqBracket => "[",
             Tok::CloseSqBracket => "]",
+            Tok::LexError(_) => "LexError",
         })
         .collect();
 
@@ -124,7 +126,14 @@ fn lexer_number_and_quoted_string() {
         .collect();
 
     // Expect: Select, QuotedString, Comma, Number, From, Ident(tbl), Eof
-    let expected = vec!["Select", "QuotedString", "Comma", "Integer", "From", "Ident"];
+    let expected = vec![
+        "Select",
+        "QuotedString",
+        "Comma",
+        "Integer",
+        "From",
+        "Ident",
+    ];
     assert_eq!(types, expected);
 }
 
@@ -160,7 +169,7 @@ fn test_valid_select_statements() {
         if res.is_err() {
             // Print the token stream for debugging
             let mut tok_lexer = Lexer::new(input);
-            let toks: Vec<(usize, sqlparser::lexer::Tok, usize)> =
+            let toks: Vec<(usize, sqlparse::lexer::Tok, usize)> =
                 std::iter::from_fn(|| tok_lexer.next()).collect();
             println!(
                 "test_valid_select_statements - Input: '{}'\nTokens: {:?}\nRes: {:?}",
@@ -178,21 +187,50 @@ fn test_valid_select_statements() {
 }
 
 #[test]
+fn test_insert_and_update_tree_formatting() {
+    let insert = parse_stmt("insert into myds values '{\"a\": 1}'").unwrap();
+    let insert_tree = insert.print_tree();
+    println!(
+        "test_insert_and_update_tree_formatting - Insert Tree:\n{}",
+        insert_tree
+    );
+    assert!(insert_tree.contains("INSERT INTO Statement"));
+    assert!(insert_tree.contains("Dataset Name: \"myds\""));
+    assert!(insert_tree.contains("Values:"));
+    assert!(insert_tree.contains("{\"a\": 1}"));
+
+    let update = parse_stmt("update tgtds set c = 22 b = 'hii' where c = 11").unwrap();
+    let update_tree = update.print_tree();
+    println!(
+        "test_insert_and_update_tree_formatting - Update Tree:\n{}",
+        update_tree
+    );
+    assert!(update_tree.contains("UPDATE Statement"));
+    assert!(update_tree.contains("Dataset Name: \"tgtds\""));
+    assert!(update_tree.contains("Set Values:"));
+    assert!(update_tree.contains("Field: c"));
+    assert!(update_tree.contains("Value: 22"));
+    assert!(update_tree.contains("Field: b"));
+    assert!(update_tree.contains("Value: 'hii'"));
+    assert!(update_tree.contains("Predicates:"));
+}
+
+#[test]
 fn test_valid_create_ds_stmt() {
     let inputs = [
         "create dataset Person",
         "create dataset Employee primary key (id)",
         "create dataset Employee primary key (id, name)",
-        "create dataset Employee primary key (id, name), relationship works_at(Company), relationship friends(Employee)",
+        "create dataset Employee primary key (id, name) relationship works_at(Company) relationship friends(Employee)",
         // TBD: multiple pkey should be rejected at runtime
-        "create dataset Employee primary key (id, name), primary key (id, name)",
+        "create dataset Employee primary key (id, name) primary key (id, name)",
     ];
     for input in &inputs {
         let res = parse_stmt(input);
         if res.is_err() {
             // Print the token stream for debugging
             let mut tok_lexer = Lexer::new(input);
-            let toks: Vec<(usize, sqlparser::lexer::Tok, usize)> =
+            let toks: Vec<(usize, sqlparse::lexer::Tok, usize)> =
                 std::iter::from_fn(|| tok_lexer.next()).collect();
             println!(
                 "Create dataset - Input: '{}'\nTokens: {:?}\nRes: {:?}",
@@ -228,7 +266,7 @@ fn test_math_expressions() {
         if res.is_err() {
             // Print the token stream for debugging
             //let mut tok_lexer = Lexer::new(input);
-            //let toks: Vec<(usize, sqlparser::lexer::Tok, usize)> =
+            //let toks: Vec<(usize, sqlparse::lexer::Tok, usize)> =
             //  std::iter::from_fn(|| tok_lexer.next()).collect();
         }
         assert!(
@@ -253,7 +291,7 @@ fn test_unrecognized_eof() {
         if let Ok(_) = res {
             // Print the token stream for debugging
             let mut tok_lexer = Lexer::new(input);
-            let toks: Vec<(usize, sqlparser::lexer::Tok, usize)> =
+            let toks: Vec<(usize, sqlparse::lexer::Tok, usize)> =
                 std::iter::from_fn(|| tok_lexer.next()).collect();
             println!(
                 "Expected error for incomplete input but parsed successfully. Input: '{}'\nTokens: {:?}\nRes: {:?}",
@@ -302,7 +340,7 @@ fn test_unrecognized_token() {
                 SqlParseError::UnrecognizedToken { token, expected } => {
                     // Print the token stream for debugging
                     let mut tok_lexer = Lexer::new(input);
-                    let toks: Vec<(usize, sqlparser::lexer::Tok, usize)> =
+                    let toks: Vec<(usize, sqlparse::lexer::Tok, usize)> =
                         std::iter::from_fn(|| tok_lexer.next()).collect();
                     println!(
                         "Input: '{}' Token: {:?} Expected: {:?}",
@@ -320,14 +358,11 @@ fn test_unrecognized_token() {
 }
 
 const INVALID_TOKEN_STMTS: [&str; 2] = [
-    // TBD: lexer should error on invalid character
     "select # from c",
-    // TBD: lexer should error on invalid character
     "select a from 4",
 ];
 
 #[test]
-#[ignore = "TBD: should fail on invalid tokens"]
 fn test_invalid_token() {
     let inputs = INVALID_TOKEN_STMTS;
     for input in &inputs {
@@ -340,14 +375,14 @@ fn test_invalid_token() {
         assert!(res.is_err(), "Expected error for invalid input: {}", input);
         if let Err(err) = res {
             match err {
-                SqlParseError::InvalidToken { location } => {
+                SqlParseError::UnrecognizedToken { token, expected } => {
                     println!(
-                        "Test InvalidToken: Input: '{}'\nLocation: {}\n",
-                        input, location
+                        "Test InvalidToken: Input: '{}' Token: {:?} Expected: {:?}\n",
+                        input, token, expected
                     );
                 }
                 _ => panic!(
-                    "Expected InvalidToken error. Input: '{}'\ngot: {:?}",
+                    "Expected UnrecognizedToken error. Input: '{}'\ngot: {:?}",
                     input, err
                 ),
             }

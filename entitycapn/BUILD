@@ -13,36 +13,38 @@
 # limitations under the License.
 
 load("@crates//:defs.bzl", "aliases", "all_crate_deps")
+load("@rules_rust//cargo:defs.bzl", "cargo_build_script")
 load("@rules_rust//rust:defs.bzl", "rust_doc", "rust_library")
 
 package(default_visibility = ["//visibility:public"])
 
-genrule(
-    name = "generate_insts",
-    srcs = ["src/entity.capnp"],
-    outs = ["src/entity_capnp.rs"],
-    cmd = """
-       echo "PATH: $$PATH"
-       capnpc -orust $(location src/entity.capnp)
-       mv entitycapn/src/entity_capnp.rs $(RULEDIR)/src/entity_capnp.rs
-    """,
+cargo_build_script(
+    name = "build_script",
+    srcs = ["build.rs"],
+    data = ["src/entity.capnp"],
+    edition = "2021",
+    deps = all_crate_deps(
+        build = True,
+    ),
 )
 
 rust_doc(
     name = "doc",
     crate = ":lib",
+    rustdoc_flags = ["--cfg=bazel_build"],
 )
 
 rust_library(
     name = "lib",
     srcs = [
-        "src/entity_capnp.rs",
         "src/lib.rs",
     ],
     aliases = aliases(),
     crate_name = "entitycapn",
+    rustc_flags = ["--cfg=bazel_build"],
     visibility = ["//visibility:public"],
     deps = [
+        ":build_script",
     ] + all_crate_deps(
         normal = True,
     ),

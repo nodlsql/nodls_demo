@@ -13,39 +13,16 @@
 // limitations under the License.
 
 use crate::utils::{self, DatasetAnalyzer, RelAnalyzer};
-use sqlinsts::{
-    sql_inst_pb, IDatapathPb, IDatasetPb, IDdlPb, IDeletePb, IIndexPb, IInsertPb, IRelUpdPb,
-    IUpdatePb, IYankPb, IndexOpPb, RelDescPb, SqlInstPb,
+use sqlexet::SqlExeTrait;
+use sqlinsts::sqlinsts::{
+    sql_inst_pb, IDatapathPb, IDatasetPb, IDdlPb, IDeletePb, IIndexPb, IInsertPb, IUpdatePb,
+    IndexOpPb, RelDescPb, SqlInstPb, ValRelsUpdPb,
 };
 use tracing::debug;
 
-pub fn push_irelupd(
-    analyzer: &DatasetAnalyzer,
-    rel_inst: &IRelUpdPb,
-    key_val_idx: i32,
-    optimized_insts: &mut Vec<SqlInstPb>,
-) -> () {
-    for rel_analyzer in &analyzer.rel_analyzers {
-        if rel_analyzer.rel_name == rel_inst.name {
-            debug!("Updating irelupdate with dataset and key_val_idx details");
-            optimized_insts.push(SqlInstPb {
-                inst: Some(sql_inst_pb::Inst::RelUpdate(IRelUpdPb {
-                    ds_name: analyzer.idataset.name.clone(),
-                    rel_id: rel_analyzer.rel_id,
-                    tgt_ds_name: rel_analyzer.tgt_ds_name.clone(),
-                    tgt_ds_id: rel_analyzer.tgt_ds_id,
-                    tgt_index_root_id: rel_analyzer.index_root_id,
-                    key_val_idx: key_val_idx,
-                    ..rel_inst.clone()
-                })),
-            });
-            break;
-        }
-    }
-}
-
 // Push idataset or iindex if applicable.
 pub fn push_idataset(
+    ctxt: &mut impl SqlExeTrait,
     analyzers: &Vec<DatasetAnalyzer>,
     idataset_inst: &IDatasetPb,
     key_val_idx: i32,
@@ -54,7 +31,7 @@ pub fn push_idataset(
     if idataset_inst.name == "dataset" {
         optimized_insts.push(SqlInstPb {
             inst: Some(sql_inst_pb::Inst::Dataset(IDatasetPb {
-                dataset_id: sqlexet::META_DATASET_ID,
+                dataset_id: ctxt.get_meta_ds_id(),
                 key_val_idx: key_val_idx,
                 ..idataset_inst.clone()
             })),
@@ -99,28 +76,7 @@ pub fn push_iindex_for_path_update(
 ) -> () {
     // Filter by update jpaths to pick up the index candidates
     let iidx_insts =
-        utils::get_index_insts_for_candidate_path(key_val_idx, &analyzers, &iupdate_inst.pathsegs);
-    for iidx_inst in iidx_insts {
-        optimized_insts.push(SqlInstPb {
-            inst: Some(sql_inst_pb::Inst::Index(IIndexPb {
-                op: op as i32,
-                key_val_idx: key_val_idx,
-                ..iidx_inst.clone()
-            })),
-        });
-    }
-}
-
-pub fn push_iindex_for_path_yank(
-    analyzers: &Vec<DatasetAnalyzer>,
-    iyank_inst: &IYankPb,
-    op: IndexOpPb,
-    key_val_idx: i32,
-    optimized_insts: &mut Vec<SqlInstPb>,
-) -> () {
-    // Filter by update jpaths to pick up the index candidates
-    let iidx_insts =
-        utils::get_index_insts_for_candidate_path(key_val_idx, &analyzers, &iyank_inst.pathsegs);
+        utils::get_index_insts_for_candidate_path(key_val_idx, &analyzers, &iupdate_inst.pathupds);
     for iidx_inst in iidx_insts {
         optimized_insts.push(SqlInstPb {
             inst: Some(sql_inst_pb::Inst::Index(IIndexPb {
@@ -134,6 +90,7 @@ pub fn push_iindex_for_path_yank(
 
 pub fn push_iupdate(
     analyzers: &Vec<DatasetAnalyzer>,
+    vrels: Vec<ValRelsUpdPb>,
     iupdate_inst: &IUpdatePb,
     key_val_idx: i32,
     optimized_insts: &mut Vec<SqlInstPb>,
@@ -151,6 +108,7 @@ pub fn push_iupdate(
     optimized_insts.push(SqlInstPb {
         inst: Some(sql_inst_pb::Inst::Update(IUpdatePb {
             key_val_idx: key_val_idx,
+            relupds: vrels,
             ..iupdate_inst.clone()
         })),
     });
@@ -161,30 +119,6 @@ pub fn push_iupdate(
         key_val_idx,
         optimized_insts,
     );
-}
-
-pub fn push_iyank(
-    analyzers: &Vec<DatasetAnalyzer>,
-    iyank_inst: &IYankPb,
-    key_val_idx: i32,
-    optimized_insts: &mut Vec<SqlInstPb>,
-) -> () {
-    // Filter by update jpaths to pick up the index candidates
-    // - add index insts before and after update to respectively
-    // - delete the old keys and insert the new ones
-    push_iindex_for_path_yank(
-        analyzers,
-        iyank_inst,
-        IndexOpPb::DeleteKey,
-        key_val_idx,
-        optimized_insts,
-    );
-    optimized_insts.push(SqlInstPb {
-        inst: Some(sql_inst_pb::Inst::Yank(IYankPb {
-            key_val_idx: key_val_idx,
-            ..iyank_inst.clone()
-        })),
-    });
 }
 
 // Index for insert/delete
@@ -230,13 +164,14 @@ pub fn push_idelete(
 pub fn push_iinsert(
     analyzer: &DatasetAnalyzer,
     iinsert_inst: &IInsertPb,
+    vrels_upd: Vec<ValRelsUpdPb>,
     key_val_idx: i32,
     optimized_insts: &mut Vec<SqlInstPb>,
 ) -> () {
     optimized_insts.push(SqlInstPb {
         inst: Some(sql_inst_pb::Inst::Insert(IInsertPb {
-            key_val_idx: key_val_idx,
             ds_id: analyzer.idataset.dataset_id,
+            valsrels: vrels_upd,
             ..iinsert_inst.clone()
         })),
     });

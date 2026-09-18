@@ -15,7 +15,7 @@
 use jsonb::{self, core::JsonbItemType, jsonpath, Number, RawJsonb};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use sqlinsts::{sql_value_pb, DecimalValuePb, SqlValuePb};
+use sqlinsts::sqlinsts::{sql_value_pb, DecimalValuePb, SqlValuePb};
 use thiserror::Error;
 use tracing::debug;
 

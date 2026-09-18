@@ -14,7 +14,7 @@
 
 use indexcapn::indexkey_capnp::index_page;
 use indexsrch::SearchRes;
-use sqlinsts::{sql_value_pb::Data, SqlValuePb};
+use sqlinsts::sqlinsts::{sql_value_pb::Data, SqlValuePb};
 use std::cell::RefCell;
 
 macro_rules! get_index_page_reader {

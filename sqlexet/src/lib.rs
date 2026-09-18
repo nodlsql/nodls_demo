@@ -44,8 +44,8 @@ pub enum UpdCounter {
     Insert(i32),
     Delete(i32),
     Update(i32),
-    AddSucc(i32),
-    RmSucc(i32),
+    AddElt(i32),
+    RmElt(i32),
     CreateDataset(i32),
     AlterDataset(i32),
     DropDataset(i32),
@@ -57,8 +57,8 @@ impl UpdCounter {
             UpdCounter::Insert(cnt)
             | UpdCounter::Delete(cnt)
             | UpdCounter::Update(cnt)
-            | UpdCounter::AddSucc(cnt)
-            | UpdCounter::RmSucc(cnt)
+            | UpdCounter::AddElt(cnt)
+            | UpdCounter::RmElt(cnt)
             | UpdCounter::CreateDataset(cnt)
             | UpdCounter::AlterDataset(cnt)
             | UpdCounter::DropDataset(cnt) => {
@@ -72,8 +72,8 @@ impl UpdCounter {
             UpdCounter::Insert(cnt)
             | UpdCounter::Delete(cnt)
             | UpdCounter::Update(cnt)
-            | UpdCounter::AddSucc(cnt)
-            | UpdCounter::RmSucc(cnt)
+            | UpdCounter::AddElt(cnt)
+            | UpdCounter::RmElt(cnt)
             | UpdCounter::CreateDataset(cnt)
             | UpdCounter::AlterDataset(cnt)
             | UpdCounter::DropDataset(cnt) => *cnt,
@@ -85,8 +85,8 @@ impl UpdCounter {
             UpdCounter::Insert(cnt) => format!("{} items inserted", cnt),
             UpdCounter::Delete(cnt) => format!("{} items deleted", cnt),
             UpdCounter::Update(cnt) => format!("{} items updated", cnt),
-            UpdCounter::AddSucc(cnt) => format!("{} successors added", cnt),
-            UpdCounter::RmSucc(cnt) => format!("{} successors removed", cnt),
+            UpdCounter::AddElt(cnt) => format!("{} elements added", cnt),
+            UpdCounter::RmElt(cnt) => format!("{} elements removed", cnt),
             UpdCounter::CreateDataset(_) => format!("Dataset created"),
             UpdCounter::AlterDataset(_) => format!("Dataset altered"),
             UpdCounter::DropDataset(_) => format!("Dataset dropped"),
@@ -151,6 +151,10 @@ pub trait SqlExeTrait {
         data_size: MtSizeT,
     ) -> MtStsT;
     fn delete_item(&mut self, tranid: MtOidT, ns: IdSpc, item_id: MtOidT) -> MtStsT;
+
+    // Get the meta dataset ID
+    fn get_meta_ds_id(&self) -> MtOidT;
+
     // Create or update dataset
     fn write_dataset(
         &mut self,
@@ -184,7 +188,6 @@ pub trait SqlExeTrait {
         tranid: MtOidT,
         ltime: MtLTimeT,
         schema_name: &str,
-        obj_type: MtSchemaType,
         schema_item_id: &mut MtOidT,
     ) -> MtStsT;
     fn dataset_enum_start(

@@ -25,12 +25,12 @@ fn test_alter_rel() {
         "create dataset myds relationship rs(tgtds)",
         "insert into myds values '{\"a\": 1}'",
         "insert into myds values '{\"a\": 2}'",
-        "insert into tgtds values '{}'",
+        "insert into tgtds values '{\"b\": null, \"c\": null}'",
         "insert into tgtds values '{\"b\": \"hi\", \"c\": 11}'",
         "insert into tgtds values '{\"b\": \"there\", \"c\": 12}'",
-        "insert into myds.rs values null where a = 1",
-        "insert into myds.rs values ('hi', 11) where a = 1",
-        "insert into myds.rs values ('there', 12) where a = 2",
+        "update myds insert rs (null, null) where a = 1",
+        "update myds insert rs ('hi', 11) where a = 1",
+        "update myds insert rs ('there', 12) where a = 2",
     ] {
         let res = sqlcontrols::stmt_exec(&mut ctxt, stmt);
         assert!(res.is_ok(), "Failed to execute '{}': {:?}", stmt, res.err());
@@ -42,7 +42,7 @@ fn test_alter_rel() {
             vec![],
             "select rs.* from myds",
             vec![
-                "{}",
+                "{\"b\":null,\"c\":null}",
                 "{\"b\":\"hi\",\"c\":11}",
                 "{\"b\":\"there\",\"c\":12}",
             ],
@@ -52,14 +52,14 @@ fn test_alter_rel() {
             vec![],
             "select *, inverse(myds.rs).* from tgtds",
             vec![
-                "{}, {\"a\":1,\"rs\":[\"null null\",\"hi 11\"]}",
+                "{\"b\":null,\"c\":null}, {\"a\":1,\"rs\":[\"null null\",\"hi 11\"]}",
                 "{\"b\":\"hi\",\"c\":11}, {\"a\":1,\"rs\":[\"null null\",\"hi 11\"]}",
                 "{\"b\":\"there\",\"c\":12}, {\"a\":2,\"rs\":\"there 12\"}",
             ],
         ),
         // 3.1 - Delete item a = 1
         (
-            vec!["alter dataset myds drop relationship rs, add relationship nurs(tgtds)"],
+            vec!["alter dataset myds drop relationship rs add relationship nurs(tgtds)"],
             "select * from myds",
             vec!["{\"a\":1}", "{\"a\":2}"],
         ),
@@ -68,23 +68,23 @@ fn test_alter_rel() {
             vec![],
             "select *, inverse(myds.rs).* from tgtds",
             vec![
-                "{}, null",
+                "{\"b\":null,\"c\":null}, null",
                 "{\"b\":\"hi\",\"c\":11}, null",
                 "{\"b\":\"there\",\"c\":12}, null",
             ],
         ),
         // 4.1 - Append to the new relationship
         (
-            vec!["insert into myds.nurs values ('hi', 11) where a = 1"],
+            vec!["update myds insert nurs ('hi', 11) where a = 1"],
             "select * from myds",
-            vec!["{\"a\":1,\"nurs\":\"hi 11\"}", "{\"a\":2}"],
+            vec!["{\"a\":2}", "{\"a\":1,\"nurs\":\"hi 11\"}"],
         ),
         // 4.2 - Verify the inverse rels have been updated
         (
             vec![],
             "select *, inverse(myds.nurs).* from tgtds",
             vec![
-                "{}, null",
+                "{\"b\":null,\"c\":null}, null",
                 "{\"b\":\"hi\",\"c\":11}, {\"a\":1,\"nurs\":\"hi 11\"}",
                 "{\"b\":\"there\",\"c\":12}, null",
             ],
@@ -100,15 +100,26 @@ fn test_alter_rel() {
             let res = sqlcontrols::stmt_exec(&mut ctxt, upd_stmt);
             assert!(
                 res.is_ok(),
-                "Failed to execute '{}': {:?}",
+                "Failed to execute test {} '{}': {:?}",
+                test_id,
                 upd_stmt,
                 res.err()
             );
         }
         let res = sqlcontrols::stmt_exec(&mut ctxt, stmt);
-        assert!(res.is_ok(), "Failed to execute '{}': {:?}", stmt, res.err());
+        assert!(
+            res.is_ok(),
+            "Failed to execute test {} '{}': {:?}",
+            test_id,
+            stmt,
+            res.err()
+        );
         let rows = res.unwrap();
-        assert_eq!(rows, expected_rows, "Unexpected result for '{}'", stmt);
+        assert_eq!(
+            rows, expected_rows,
+            "Unexpected result for test {} '{}'",
+            test_id, stmt
+        );
         test_id += 1;
     }
 }
@@ -118,7 +129,7 @@ fn test_alter_index() {
     // Inits
     let mut ctxt = demoexe::DemoContextT::new();
     for stmt in [
-        "create dataset myds unique index uix(a), index dix(b)",
+        "create dataset myds unique index uix(a) index dix(b)",
         "insert into myds values '{\"a\": 1, \"b\": 10}'",
         "insert into myds values '{\"a\": 2, \"b\": 20}'",
     ] {
@@ -140,7 +151,7 @@ fn test_alter_index() {
         ),
         // 2 - Drop the indexes and verify that the selects still work
         (
-            vec!["alter dataset myds drop index uix, drop index dix"],
+            vec!["alter dataset myds drop index uix drop index dix"],
             "select * from myds where a = 1",
             vec!["{\"a\":1,\"b\":10}"],
         ),
@@ -160,7 +171,8 @@ fn test_alter_index() {
             let res = sqlcontrols::stmt_exec(&mut ctxt, upd_stmt);
             assert!(
                 res.is_ok(),
-                "Failed to execute '{}': {:?}",
+                "Failed to execute test {} '{}': {:?}",
+                test_id,
                 upd_stmt,
                 res.err()
             );

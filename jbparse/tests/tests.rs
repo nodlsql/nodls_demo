@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use jsonb::jsonpath;
-use sqlinsts::SqlValuePb;
+use sqlinsts::sqlinsts::{SqlValuePb, sql_value_pb, DecimalValuePb};
 
 #[test]
 fn test_jsonb() {
@@ -171,7 +171,7 @@ fn test_sqlvalues_to_summary_jsonvalue() {
     // Single value
     let sql_value = SqlValuePb {
         is_constant: false,
-        data: Some(sqlinsts::sql_value_pb::Data::StringValue(
+        data: Some(sql_value_pb::Data::StringValue(
             "Hello".to_string(),
         )),
     };
@@ -185,7 +185,7 @@ fn test_sqlvalues_to_summary_jsonvalue() {
     // Multiple values
     let sql_value_int = SqlValuePb {
         is_constant: false,
-        data: Some(sqlinsts::sql_value_pb::Data::Int64Value(123)),
+        data: Some(sql_value_pb::Data::Int64Value(123)),
     };
     let sql_values = vec![sql_value, sql_value_int];
     let json_values = jbparse::sqlvalues_to_summary_jsonvalue(sql_values.clone());
@@ -248,7 +248,7 @@ fn test_sqlvalues_to_summary_jsonvalue() {
 fn test_sqlvalue_to_jsonvalue() {
     let sql_value = SqlValuePb {
         is_constant: false,
-        data: Some(sqlinsts::sql_value_pb::Data::StringValue(
+        data: Some(sql_value_pb::Data::StringValue(
             "Hello".to_string(),
         )),
     };
@@ -261,7 +261,7 @@ fn test_sqlvalue_to_jsonvalue() {
 
     let sql_value_int = SqlValuePb {
         is_constant: false,
-        data: Some(sqlinsts::sql_value_pb::Data::Int64Value(123)),
+        data: Some(sql_value_pb::Data::Int64Value(123)),
     };
     let json_value_int = jbparse::sqlvalue_to_jsonvalue(&sql_value_int);
     println!(
@@ -278,7 +278,7 @@ fn test_update_jsonstr() {
     let key_path = vec!["name".to_string()];
     let value = SqlValuePb {
         is_constant: true,
-        data: Some(sqlinsts::sql_value_pb::Data::StringValue("Bob".to_string())),
+        data: Some(sql_value_pb::Data::StringValue("Bob".to_string())),
     };
 
     let drop_json_string = jbparse::drop_from_jsonstr(&json_string.to_string(), &key_path).unwrap();
@@ -292,7 +292,7 @@ fn test_update_jsonstr() {
     let key_path = vec!["address".to_string()];
     let value = SqlValuePb {
         is_constant: true,
-        data: Some(sqlinsts::sql_value_pb::Data::StringValue(
+        data: Some(sql_value_pb::Data::StringValue(
             r#"{"city":"LA", "zip":90001}"#.to_string(),
         )),
     };
@@ -310,7 +310,7 @@ fn test_update_jsonstr() {
     let json_string = r#"{"name":"Alice", "address":{"city":"NY", "zip":"10001"}}"#;
     let value = SqlValuePb {
         is_constant: true,
-        data: Some(sqlinsts::sql_value_pb::Data::Int64Value(10002)),
+        data: Some(sql_value_pb::Data::Int64Value(10002)),
     };
     let key_path = vec!["address".to_string(), "zip".to_string()];
 
@@ -365,7 +365,7 @@ fn test_schema_stripped_to_jsonb() {
     println!("TEST SCHEMA STRIPPED TO SQLVALUE - Dataset: {:?}", dataset);
     let sqlval = jbparse::jsonb_to_sqlvalue("$", &jsonb_desc.to_vec());
     let value_str = match sqlval.data.as_ref().unwrap() {
-        sqlinsts::sql_value_pb::Data::StringValue(s) => s,
+        sql_value_pb::Data::StringValue(s) => s,
         _ => panic!("Expected StringValue"),
     };
     assert_eq!(
@@ -395,7 +395,7 @@ fn test_schema_stripped_to_jsonb() {
     );
     let sqlval = jbparse::jsonb_to_sqlvalue("$", &jsonb_desc.to_vec());
     let value_str = match sqlval.data.as_ref().unwrap() {
-        sqlinsts::sql_value_pb::Data::StringValue(s) => s,
+        sql_value_pb::Data::StringValue(s) => s,
         _ => panic!("Expected StringValue"),
     };
     assert_eq!(value_str, "{\"name\":\"Dataset1\"}");
@@ -474,13 +474,13 @@ fn test_numeric_values() {
     ];
 
     let expected_values = vec![
-        sqlinsts::sql_value_pb::Data::Int64Value(123),
-        sqlinsts::sql_value_pb::Data::DecimalValue(sqlinsts::DecimalValuePb {
+        sql_value_pb::Data::Int64Value(123),
+        sql_value_pb::Data::DecimalValue(DecimalValuePb {
             scale: 2,
             number: 314,
         }),
-        sqlinsts::sql_value_pb::Data::Int64Value(-456),
-        sqlinsts::sql_value_pb::Data::DecimalValue(sqlinsts::DecimalValuePb {
+        sql_value_pb::Data::Int64Value(-456),
+        sql_value_pb::Data::DecimalValue(DecimalValuePb {
             scale: 3,
             number: -2718,
         }),

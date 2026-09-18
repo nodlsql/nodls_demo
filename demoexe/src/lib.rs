@@ -15,8 +15,7 @@
 use demodata::tstdata;
 
 use sqlexet::{
-    IdSpc, MtLTimeT, MtOidT, MtSchemaType, MtSizeT, MtStsT, SqlExeTrait, MTS_CLASSNOTFOUND,
-    MTS_ENDOFSTREAM, MTS_OBJNOTFOUND, STS_SUCCESS,
+    IdSpc, MTS_CLASSNOTFOUND, MTS_ENDOFSTREAM, MTS_OBJNOTFOUND, MtLTimeT, MtOidT, MtSchemaType, MtSizeT, MtStsT, STS_SUCCESS, SqlExeTrait, UpdCounter,
 };
 use std::ffi::c_void;
 use tracing::debug;
@@ -27,7 +26,7 @@ pub struct DemoContextT {
     handle: *mut c_void,
     ltime: MtLTimeT,
     tranid: MtOidT,
-    counter: Option<sqlexet::UpdCounter>,
+    counters: Vec<UpdCounter>,
     demo_data: tstdata::SchemaPb,
 }
 
@@ -37,7 +36,7 @@ impl SqlExeTrait for DemoContextT {
             handle: std::ptr::null_mut(),
             ltime: 0,
             tranid: 0,
-            counter: None,
+            counters: vec![],
             demo_data: tstdata::SchemaPb {
                 // list of DatasetPb
                 datasets: vec![],
@@ -51,31 +50,34 @@ impl SqlExeTrait for DemoContextT {
     }
 
     fn increment_count(&mut self, count: sqlexet::UpdCounter) {
+        // Loop through the counters to find a matching type
         // Create a counter if not already there
-        if self.counter.is_none() {
-            self.counter = Some(count);
+        if self.counters.is_empty() {
+            self.counters.push(count);
             return;
         }
-        let current_cnt_type = self.counter.unwrap();
-        if current_cnt_type != count {
-            println!(
-                "Counter type mismatch: current {:?}, incrementing with {:?}",
-                current_cnt_type, count
-            );
-            return;
+        let mut found = false;
+        for counter in &mut self.counters {
+            if std::mem::discriminant(counter) == std::mem::discriminant(&count) {
+                counter.inc(count.get());
+                found = true;
+                break;
+            }
         }
-        self.counter.as_mut().unwrap().inc(count.get());
+        if !found {
+            self.counters.push(count);
+        }
     }
 
     fn clear_counts(&mut self) {
-        self.counter = None;
+        self.counters.clear();
     }
 
     fn print_count(&self) -> String {
-        if let Some(counter) = &self.counter {
-            counter.print()
-        } else {
+        if self.counters.is_empty() {
             "".to_string()
+        } else {
+            self.counters.iter().map(|c| c.print()).collect::<Vec<_>>().join("\n")
         }
     }
 
@@ -226,6 +228,10 @@ impl SqlExeTrait for DemoContextT {
         MTS_OBJNOTFOUND
     }
 
+    fn get_meta_ds_id(&self) -> MtOidT {
+        return sqlexet::META_DATASET_ID;
+    }
+
     fn write_dataset(
         &mut self,
         _tranid: MtOidT,
@@ -364,7 +370,6 @@ impl SqlExeTrait for DemoContextT {
         _tranid: MtOidT,
         _ltime: MtLTimeT,
         schema_name: &str,
-        _obj_type: MtSchemaType,
         schema_item: &mut MtOidT,
     ) -> MtStsT {
         if schema_name == "dataset" {

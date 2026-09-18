@@ -12,6 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub mod indexkey_capnp {
-    include!(concat!(env!("OUT_DIR"), "/indexkey_capnp.rs"));
+fn main() {
+    println!("cargo:rerun-if-changed=indexkey.capnp");
+
+    capnpc::CompilerCommand::new()
+        .src_prefix("src")
+        .file("src/indexkey.capnp")
+        .run()
+        .expect("failed to compile indexkey.capnp");
 }

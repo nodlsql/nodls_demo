@@ -26,7 +26,7 @@ module(
 # C++ compiler is invoked by rules_go:
 # ERROR: .../rules_go+/go/private/rules/cgo.bzl:101:12: The CcInfo symbol has been removed
 bazel_dep(name = "protobuf", version = "33.4")
-bazel_dep(name = "rules_rust", version = "0.73.0")
+bazel_dep(name = "rules_rust", version = "0.74.0")
 bazel_dep(name = "bazel_lib", version = "3.7.1")
 bazel_dep(name = "bazel_skylib", version = "1.9.0")
 bazel_dep(name = "rules_cc", version = "0.2.17")

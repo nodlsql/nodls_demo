@@ -18,6 +18,14 @@ version = "0.1.0"
 edition = "2021"
 publish = false
 
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = [
+  "cfg(demo)", 
+  "cfg(demoprt)", 
+  "cfg(prod)", 
+  "cfg(prodprt)",
+  ] }
+
 # A dummy lib is required to let Bazel generate BUILD files from a Cargo.toml file.
 [lib]
 path = "src/lib.rs"
@@ -33,3 +41,4 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] }
 sqlexet = { version = "0.1.0", path = "../sqlexet" }
 sqlcontrols = { version = "0.1.0", path = "../sqlcontrols" }
+demoexe = { version = "0.1.0", path = "../demoexe" }

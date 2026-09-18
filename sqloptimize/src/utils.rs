@@ -15,9 +15,9 @@
 use sqlexet::{MtOidT, MtSchemaType, SqlExeTrait, STS_SUCCESS};
 
 use jbparse::DatasetDesc;
-use sqlinsts::{
-    sql_inst_pb, sql_value_pb, CompOperatorPb, IComparePb, IDatapathPb, IDatasetPb, IIndexPb,
-    IndexOpPb, IndexSegPb, IndexTypePb, InvRelEltPb, RangePb, SqlInstPb, SqlPlanPb, SqlValuePb,
+use sqlinsts::sqlinsts::{
+    CompOperatorPb, IComparePb, IDatapathPb, IDatasetPb, IIndexPb, IndexOpPb, IndexSegPb,
+    IndexTypePb, InvRelEltPb, PathUpdPb, RangePb, RelUpdPb, SqlValuePb, ValRelsUpdPb,
 };
 use std::ffi::c_uint;
 use thiserror::Error;
@@ -27,7 +27,7 @@ use tracing::debug;
 pub const MIN_USER_DATASET_ID: u32 = 4098; // nodls pseudo-dataset 0x1002
 
 #[derive(Error, Debug, PartialEq)]
-pub enum SqlTranslateError {
+pub enum SqlAnalyzeError {
     #[error("Dataset {0} already exists")]
     DatasetAlreadyExists(String),
     #[error("Dataset {0} not found")]
@@ -42,8 +42,6 @@ pub enum SqlTranslateError {
     InvalidUpdate,
     #[error("Ambiguous datapath {0}")]
     AmbiguousDatapath(String),
-    #[error("Decimal value too large")]
-    DecimalOverflow,
     #[error("Invalid jsonpath {0}")]
     InvalidJsonPath(String),
 }
@@ -134,7 +132,7 @@ pub fn build_ds_desc_analyzer(
     ds_name: &String,
     dataset_key_val_idx: i32,
     analyzers: &Vec<DatasetAnalyzer>,
-) -> Result<Option<DatasetAnalyzer>, SqlTranslateError> {
+) -> Result<Option<DatasetAnalyzer>, SqlAnalyzeError> {
     // Check if already in analyzers
     for analyzer in analyzers {
         if analyzer.idataset.name == *ds_name {
@@ -146,7 +144,7 @@ pub fn build_ds_desc_analyzer(
     let tgt_ds_id_opt = get_schema_key(ctxt, ds_name, MtSchemaType::KeyDataset);
     let tgt_ds_id = match tgt_ds_id_opt {
         Some(id) => id,
-        None => return Err(SqlTranslateError::DatasetNotFound(ds_name.clone())),
+        None => return Err(SqlAnalyzeError::DatasetNotFound(ds_name.clone())),
     };
     if tgt_ds_id < MIN_USER_DATASET_ID {
         return Ok(None);
@@ -169,7 +167,7 @@ pub fn build_ds_desc_analyzer(
                     indexes: vec![],
                 }
             } else {
-                return Err(SqlTranslateError::DatasetNotFound(ds_name.clone()));
+                return Err(SqlAnalyzeError::DatasetNotFound(ds_name.clone()));
             }
         }
     };
@@ -226,19 +224,19 @@ pub fn compute_index_range_for_datapath(
         return None;
     }
     let mut range = RangePb {
-        lower_bound_val_idx: -1,
-        lower_bound_nb_vals: 1,
-        upper_bound_val_idx: -1,
-        lower_op: 0,
-        upper_op: 0,
+        lb_val_idx: -1,
+        lb_nb_vals: 1,
+        ub_val_idx: -1,
+        lb_op: 0,
+        ub_op: 0,
     };
 
     // For 'IN(x, y)' we expect only one comparison operator
     for icomp in icomps {
         if icomp.comp as i32 == CompOperatorPb::In as i32 {
-            range.lower_bound_val_idx = icomp.right_val_idx;
-            range.lower_bound_nb_vals = icomp.right_val_cnt;
-            range.lower_op = CompOperatorPb::In as i32;
+            range.lb_val_idx = icomp.right_val_idx;
+            range.lb_nb_vals = icomp.right_val_cnt;
+            range.lb_op = CompOperatorPb::In as i32;
             return Some(range);
         }
     }
@@ -246,8 +244,8 @@ pub fn compute_index_range_for_datapath(
     let lb_comp = compute_lb_for_datapath(idpth, icomps, sqlvals);
     // We are done if any equi comparison for the datapath
     if let Some(lb_res) = lb_comp {
-        range.lower_bound_val_idx = lb_res.0;
-        range.lower_op = lb_res.1;
+        range.lb_val_idx = lb_res.0;
+        range.lb_op = lb_res.1;
         if lb_res.1 == CompOperatorPb::Eq as i32 {
             return Some(range);
         }
@@ -255,13 +253,13 @@ pub fn compute_index_range_for_datapath(
     let ub_comp = compute_ub_for_datapath(idpth, icomps, sqlvals);
     if let Some(ub_res) = ub_comp {
         range = RangePb {
-            upper_bound_val_idx: ub_res.0,
-            upper_op: ub_res.1,
+            ub_val_idx: ub_res.0,
+            ub_op: ub_res.1,
             ..range.clone()
         };
         return Some(range);
     }
-    if range.lower_bound_val_idx != -1 || range.upper_bound_val_idx != -1 {
+    if range.lb_val_idx != -1 || range.ub_val_idx != -1 {
         return Some(range);
     }
     None
@@ -271,7 +269,7 @@ pub fn compute_index_range_for_datapath(
 pub fn get_schema_key(
     ctxt: &impl SqlExeTrait,
     schema_name: &str,
-    schema_type: MtSchemaType,
+    _schema_type: MtSchemaType,
 ) -> Option<u32> {
     let mut schema_id: MtOidT = 0;
     // Primary key for class 'Member { key_val_idx: 0, val_idx: 0, part: Path([PathSegment { name: "hiidx" }]) }': ["abc"]
@@ -282,20 +280,13 @@ pub fn get_schema_key(
         ctxt.get_tranid(),
         ctxt.get_ltime(),
         schema_name,
-        schema_type, // This is ignored for now, afaik all schema descriptors are in same dict
         &mut schema_id,
     );
     if sts == STS_SUCCESS {
-        debug!(
-            "Found schema ID for '{}' type {}: 0x{:x}",
-            schema_name, schema_type as i32, schema_id
-        );
+        debug!("Found schema ID for '{}' 0x{:x}", schema_name, schema_id);
         Some(schema_id)
     } else {
-        debug!(
-            "Failed to get schema ID for '{}' type {}",
-            schema_name, schema_type as i32
-        );
+        debug!("Failed to get schema ID for '{}'", schema_name);
         None
     }
 }
@@ -395,7 +386,10 @@ fn compute_ub_for_datapath(
     return None;
 }
 
-pub fn get_pkey_index_for_dataset(ds_name: &String, analyzers: &Vec<DatasetAnalyzer>) -> Option<IIndexPb> {
+pub fn get_pkey_index_for_dataset(
+    ds_name: &String,
+    analyzers: &Vec<DatasetAnalyzer>,
+) -> Option<IIndexPb> {
     let dataset_analyzer_opt = analyzers.iter().find(|a| a.dataset_desc.name == *ds_name);
     let dataset_analyzer = match dataset_analyzer_opt {
         Some(analyzer) => analyzer,
@@ -478,144 +472,50 @@ pub fn get_invrel_for_offset(jpath: &Vec<InvRelEltPb>, offset: usize) -> Option<
     None
 }
 
-// Pretty-print a SqlPlanPb with 4-space indentation and one line per SqlInstPb or SqlValuePb
-pub fn pretty_print_plan(plan: &SqlPlanPb) -> String {
-    let mut out = String::new();
-
-    // Instructions
-    for inst in &plan.insts {
-        out.push_str("    ");
-        out.push_str(&fmt_inst(inst));
-        out.push('\n');
-    }
-
-    // Values
-    for (i, val) in plan.values.iter().enumerate() {
-        out.push_str("    ");
-        out.push_str(&format!("val[{}]: {}", i, fmt_value(val)));
-        out.push('\n');
-    }
-    out
-}
-
-fn fmt_inst(inst: &SqlInstPb) -> String {
-    match inst.inst.as_ref() {
-        Some(sql_inst_pb::Inst::Options(o)) => {
-            format!(
-                "ISetOptions limit_cnt={} limit_cnt_grp={} start_offset={} start_offset_grp={}",
-                o.limit_cnt, o.limit_cnt_grp, o.start_offset, o.start_offset_grp
-            )
-        }
-        Some(sql_inst_pb::Inst::DdlUpdate(d)) => {
-            format!(
-                "IDdlUpdate op={} name={} ds_name={} type={}",
-                d.op, d.name, d.ds_name, d.idx_type
-            )
-        }
-        Some(sql_inst_pb::Inst::Dataset(c)) => {
-            format!(
-                "IDataset name={} key_val_idx={} dataset_id={}",
-                c.name, c.key_val_idx, c.dataset_id
-            )
-        }
-        Some(sql_inst_pb::Inst::Dpath(a)) => {
-            format!(
-                "IDatapath pathstr={} pathsegs={:?} jsonpath={:?} parent_path={:?} ds_name={} alias={} key_val_idx={} val_idx={} phase={} rels={:?}",
-                a.path_str, a.pathsegs, a.jsonpath, a.parent_path, a.ds_name, a.alias, a.key_val_idx, a.val_idx, a.phase, a.rel_descs
-            )
-        }
-        Some(sql_inst_pb::Inst::Rel(r)) => {
-            format!(
-                "IRel name={} ds_name={} rel_id={} inverse={} tgt_ds_name={} key_val_idx={} tgt_key_val_idx={}",
-                r.name, r.ds_name, r.rel_id, r.inverse, r.tgt_ds_name, r.key_val_idx, r.tgt_key_val_idx
-            )
-        }
-        Some(sql_inst_pb::Inst::RelUpdate(r)) => {
-            format!(
-                "IRelUpdate name={} ds_name={} rel_id={} tgt_ds_name={} tgt_ds_id={} key_val_idx={} ranges={:?}",
-                r.name, r.ds_name, r.rel_id, r.tgt_ds_name, r.tgt_ds_id, r.key_val_idx, r.ranges
-            )
-        }
-        Some(sql_inst_pb::Inst::Comp(c)) => {
-            format!(
-                "ICompare comp={} left_val_idx={} right_val_idx={} right_val_cnt={}",
-                c.comp, c.left_val_idx, c.right_val_idx, c.right_val_cnt
-            )
-        }
-        Some(sql_inst_pb::Inst::Proj(p)) => {
-            format!(
-                "IProj name={} path={:?} val_idx={} col_num={}",
-                p.proj_name, p.path, p.val_idx, p.col_num
-            )
-        }
-        Some(sql_inst_pb::Inst::Index(i)) => {
-            let segments = if i.seg_strs.is_empty() {
-                "".to_string()
-            } else {
-                // Get comma-separated segment strings for display
-                i.seg_strs
-                    .iter()
-                    .map(|s| s.clone())
-                    .collect::<Vec<String>>()
-                    .join(",")
-            };
-            let mut rg_str = "".to_string();
-            // Format ranges as: 'ranges: (lbix=2, lbop=Gt, ubix=0, ubop=Eq), (...)'
-            if let Some(r) = &i.range {
-                for rg in &r.ranges {
-                    let rg_str_part = format!(
-                        "(lbix={}, lbcnt={}, lbop={}, ubix={}, ubop={}), ",
-                        rg.lower_bound_val_idx, rg.lower_bound_nb_vals, rg.lower_op, rg.upper_bound_val_idx, rg.upper_op
-                    );
-                    rg_str = format!("{}{}", rg_str, rg_str_part);
-                }
+pub fn vrels_target_details(
+    analyzer: &DatasetAnalyzer,
+    valrels: &Vec<ValRelsUpdPb>,
+) -> Result<Vec<ValRelsUpdPb>, SqlAnalyzeError> {
+    let mut vrels = vec![];
+    for vrel in valrels {
+        let mut rd = vec![];
+        for r in &vrel.relupd {
+            let rupd = relupd_target_details(analyzer, r);
+            if rupd.is_err() {
+                return Err(rupd.err().unwrap());
             }
-            format!(
-                "IIndex type={} op={} name={} segments={} root_id=0x{:x} key_val_idx={} ranges={}",
-                i.idx_type, i.op, i.name, segments, i.root_id, i.key_val_idx, rg_str
-            )
+            let rupd = rupd.unwrap();
+            rd.push(rupd);
         }
-        Some(sql_inst_pb::Inst::Insert(i)) => {
-            format!(
-                "IInsert ds_name={} ds_id={} key_val_idx={} val_idxs={:?}",
-                i.ds_name, i.ds_id, i.key_val_idx, i.val_idxs
-            )
-        }
-        Some(sql_inst_pb::Inst::Delete(d)) => {
-            format!("IDelete key_val_idx={}", d.key_val_idx)
-        }
-        Some(sql_inst_pb::Inst::Update(u)) => {
-            format!(
-                "IUpdate key_val_idx={} val_idxs={:?} pathsegs={:?}",
-                u.key_val_idx, u.val_idxs, u.pathsegs
-            )
-        }
-        Some(sql_inst_pb::Inst::Yank(u)) => {
-            format!(
-                "IYank key_val_idx={} pathsegs={:?}",
-                u.key_val_idx, u.pathsegs
-            )
-        }
-        Some(sql_inst_pb::Inst::Expr(e)) => {
-            format!(
-                "IExpr op={} lval={} rval={} resval={}",
-                e.op, e.lval_idx, e.rval_idx, e.resval_idx
-            )
-        }
-        None => "<empty-inst>".to_string(),
+        let vr = ValRelsUpdPb {
+            relupd: rd,
+            ..vrel.clone()
+        };
+        vrels.push(vr);
     }
+    Ok(vrels)
 }
 
-fn fmt_value(v: &SqlValuePb) -> String {
-    match v.data.as_ref() {
-        None => "None".to_string(),
-        Some(sql_value_pb::Data::BoolValue(b)) => format!("Bool({})", b),
-        Some(sql_value_pb::Data::Int64Value(i)) => format!("Int64({})", i),
-        Some(sql_value_pb::Data::OidValue(o)) => format!("OidValue({})", o),
-        Some(sql_value_pb::Data::DecimalValue(d)) => format!("Decimal({:?})", d),
-        Some(sql_value_pb::Data::StringValue(s)) => format!("String(\"{}\")", s),
-        Some(sql_value_pb::Data::NullValue(_)) => "Null".to_string(),
+// Set target dataset details for one rel update
+pub fn relupd_target_details(
+    analyzer: &DatasetAnalyzer,
+    rel_inst: &RelUpdPb,
+) -> Result<RelUpdPb, SqlAnalyzeError> {
+    for rel_analyzer in &analyzer.rel_analyzers {
+        if rel_analyzer.rel_name == rel_inst.name {
+            debug!("Updating relupdate with dataset and key_val_idx details");
+            let ru = RelUpdPb {
+                ds_name: analyzer.idataset.name.clone(),
+                rel_id: rel_analyzer.rel_id,
+                tgt_ds_name: rel_analyzer.tgt_ds_name.clone(),
+                tgt_ds_id: rel_analyzer.tgt_ds_id,
+                tgt_index_root_id: rel_analyzer.index_root_id,
+                ..rel_inst.clone()
+            };
+            return Ok(ru);
+        }
     }
+    Err(SqlAnalyzeError::InvalidRelationship(rel_inst.name.clone()))
 }
 
 // Identify path against index segment path, return true if path matches or is empty
@@ -642,12 +542,12 @@ pub fn path_matches(path: &Vec<String>, index_path: &Vec<String>) -> bool {
 pub fn get_index_insts_for_candidate_path(
     key_val_idx: i32,
     analyzers: &Vec<DatasetAnalyzer>,
-    paths: &Vec<String>, // multiple paths for one update, e.g. 'a', 'b.c'
+    pathupds: &Vec<PathUpdPb>, // multiple paths for one update, e.g. 'a', 'b.c'
 ) -> Vec<IIndexPb> {
     let mut index_insts = vec![];
     debug!(
         "Looking for index matches for paths {:?} with key_val_idx {}",
-        paths, key_val_idx
+        pathupds, key_val_idx
     );
     for analyzer in analyzers {
         if analyzer.idataset.key_val_idx != key_val_idx {
@@ -662,9 +562,10 @@ pub fn get_index_insts_for_candidate_path(
                     "Check segs against index segment {:?} for index {:?}",
                     iseg_vec, index_analyzer.iindex.name
                 );
-                for seg_str in paths {
-                    debug!("Check seg {:?} against index segments", seg_str);
-                    let segs = seg_str
+                for pathupd in pathupds {
+                    debug!("Check seg {:?} against index segments", pathupd.pathsegs);
+                    let segs = pathupd
+                        .pathsegs
                         .split('.')
                         .map(|s| s.to_string())
                         .collect::<Vec<String>>();
@@ -672,7 +573,7 @@ pub fn get_index_insts_for_candidate_path(
                     if path_matches(&segs, &iseg_vec.seg_vec) {
                         debug!(
                             "Path segs {:?} matches index segments {:?}",
-                            seg_str, iseg_vec.seg_vec
+                            pathupd.pathsegs, iseg_vec.seg_vec
                         );
                         path_match = true;
                         break;

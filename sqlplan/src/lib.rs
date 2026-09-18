@@ -14,12 +14,14 @@
 
 use ast::CompOperator;
 use sqlexet::SqlExeTrait;
-use sqlinsts::{
-    sql_inst_pb, sql_value_pb, CompOperatorPb, DecimalValuePb, EvalPhasePb, IDatapathPb, IProjPb,
-    IRelUpdPb, InvRelEltPb, RelOpPb, SqlInstPb, SqlPlanPb, SqlStmtPb, SqlValuePb,
+use sqlinsts::sqlinsts::{
+    sql_inst_pb, sql_value_pb, CompOperatorPb, EvalPhasePb, IComparePb, IDatapathPb, IDatasetPb,
+    IDeletePb, IExprPb, IInsertPb, IProjPb, IUpdatePb, InvRelEltPb, OperPb, PathUpdPb, SqlInstPb,
+    SqlPlanPb, SqlStmtPb, SqlValuePb, UpdateOpPb, ValRelsUpdPb,
 };
-use sqloptimize::{add_value, utils::SqlTranslateError};
-use sqlparser::ast;
+use sqlparse::ast;
+use utils::SqlTranslateError;
+
 use tracing::debug;
 
 pub mod utils;
@@ -57,7 +59,7 @@ pub fn translate(
         // Select statement
         ast::SqlStmt::Select(sel) => {
             sqlplan = SqlPlanPb {
-                sqlstmt: SqlStmtPb::Select.into(),
+                sqlstmt: SqlStmtPb::SelectStmt.into(),
                 insts: vec![],
                 values: vec![],
                 max_value_idx: 0,
@@ -69,33 +71,28 @@ pub fn translate(
             println!(
                 "-------------------------------------------------------------------------------"
             );
-            sqloptimize::optimize_plan(ctxt, &mut sqlplan)?;
         }
         // Create dataset statement
         ast::SqlStmt::CreateDataset(ds) => {
             sqlplan = translate_create_dataset(ds)?;
             // Check if dataset already exists, resolve rel target
-            sqloptimize::optimize_plan(ctxt, &mut sqlplan)?;
         }
         // Drop dataset statement
         ast::SqlStmt::DropDataset(ds) => {
             sqlplan = translate_drop_dataset(ds)?;
-            sqloptimize::optimize_plan(ctxt, &mut sqlplan)?;
         }
         // Describe dataset statement
         ast::SqlStmt::DescribeDataset(ds) => {
             sqlplan = translate_describe_dataset(ds)?;
-            sqloptimize::optimize_plan(ctxt, &mut sqlplan)?;
         }
         // Alter dataset statement
         ast::SqlStmt::AlterDataset(alter) => {
             sqlplan = translate_alter_dataset(alter)?;
-            sqloptimize::optimize_plan(ctxt, &mut sqlplan)?;
         }
         // Delete from statement
         ast::SqlStmt::DeleteFrom(del) => {
             sqlplan = SqlPlanPb {
-                sqlstmt: SqlStmtPb::DeleteFrom.into(),
+                sqlstmt: SqlStmtPb::DeleteFromStmt.into(),
                 insts: vec![],
                 values: vec![],
                 max_value_idx: 0,
@@ -117,16 +114,14 @@ pub fn translate(
             )?;
             // Back to business
             translate_delete_from(del, &mut sqlplan)?;
-            sqloptimize::optimize_plan(ctxt, &mut sqlplan)?;
         }
         // Insert Into statement
         ast::SqlStmt::InsertInto(insert) => {
             sqlplan = translate_insert_into(insert)?;
-            sqloptimize::optimize_plan(ctxt, &mut sqlplan)?;
         }
         ast::SqlStmt::Update(update) => {
             sqlplan = SqlPlanPb {
-                sqlstmt: SqlStmtPb::Update.into(),
+                sqlstmt: SqlStmtPb::UpdateStmt.into(),
                 insts: vec![],
                 values: vec![],
                 max_value_idx: 0,
@@ -138,44 +133,8 @@ pub fn translate(
             translate_from_list(&mut sqlplan, &from_list)?;
             translate_predicates(&mut sqlplan, &mut update.predicate_list, &from_list)?;
             translate_update(update, &mut sqlplan)?;
-            sqloptimize::optimize_plan(ctxt, &mut sqlplan)?;
-        }
-        ast::SqlStmt::Yank(yank) => {
-            sqlplan = SqlPlanPb {
-                sqlstmt: SqlStmtPb::Yank.into(),
-                insts: vec![],
-                values: vec![],
-                max_value_idx: 0,
-            };
-            let from_list = vec![ast::FromListItem {
-                ds_name: yank.ds_name.clone(),
-                alias: None,
-            }];
-            translate_from_list(&mut sqlplan, &from_list)?;
-            translate_predicates(&mut sqlplan, &mut yank.predicate_list, &from_list)?;
-            translate_yank(yank, &mut sqlplan)?;
-            sqloptimize::optimize_plan(ctxt, &mut sqlplan)?;
-        }
-        ast::SqlStmt::UpdateRel(update_rel) => {
-            sqlplan = SqlPlanPb {
-                sqlstmt: SqlStmtPb::UpdateRel.into(),
-                insts: vec![],
-                values: vec![],
-                max_value_idx: 0,
-            };
-            translate_from_list(&mut sqlplan, &update_rel.from_list)?;
-            translate_predicates(
-                &mut sqlplan,
-                &mut update_rel.predicate_list,
-                &update_rel.from_list,
-            )?;
-            translate_update_rel(update_rel, &mut sqlplan)?;
-            sqloptimize::optimize_plan(ctxt, &mut sqlplan)?;
         }
     }
-
-    #[cfg(any(demoprt, prodprt))]
-    println!("SQL Plan:\n{}", sqloptimize::utils::pretty_print_plan(&sqlplan));
 
     Ok(sqlplan)
 }
@@ -186,7 +145,7 @@ pub fn translate_create_dataset(
     // Create dataset statement
     debug!("Translating CREATE DATASET statement: {:?}", dataset_stmt);
     let mut sqlplan = SqlPlanPb {
-        sqlstmt: SqlStmtPb::CreateDataset.into(),
+        sqlstmt: SqlStmtPb::CreateDsStmt.into(),
         insts: vec![],
         values: vec![],
         max_value_idx: 0,
@@ -203,7 +162,7 @@ pub fn translate_drop_dataset(
     // Drop dataset statement
     debug!("Translating DROP DATASET statement: {:?}", dataset_stmt);
     let mut sqlplan = SqlPlanPb {
-        sqlstmt: SqlStmtPb::AlterDataset.into(),
+        sqlstmt: SqlStmtPb::DropDsStmt.into(),
         insts: vec![],
         values: vec![],
         max_value_idx: 0,
@@ -216,7 +175,7 @@ pub fn translate_describe_dataset(
     dataset_stmt: &mut ast::DescribeDatasetStmt,
 ) -> Result<SqlPlanPb, SqlTranslateError> {
     let mut sqlplan = SqlPlanPb {
-        sqlstmt: SqlStmtPb::AlterDataset.into(),
+        sqlstmt: SqlStmtPb::DescribeDsStmt.into(),
         insts: vec![],
         values: vec![],
         max_value_idx: 0,
@@ -232,7 +191,7 @@ pub fn translate_alter_dataset(
     // Alter dataset statement
     debug!("Translating ALTER DATASET statement: {:?}", alter_stmt);
     let mut sqlplan = SqlPlanPb {
-        sqlstmt: SqlStmtPb::AlterDataset.into(),
+        sqlstmt: SqlStmtPb::AlterDsStmt.into(),
         insts: vec![],
         values: vec![],
         max_value_idx: 0,
@@ -249,7 +208,7 @@ pub fn translate_delete_from(
 ) -> Result<(), SqlTranslateError> {
     debug!("Translating DELETE FROM statement: {:?}", del);
     let del_inst = SqlInstPb {
-        inst: Some(sql_inst_pb::Inst::Delete(sqlinsts::IDeletePb {
+        inst: Some(sql_inst_pb::Inst::Delete(IDeletePb {
             key_val_idx: -1, // Set by optimizer
         })),
     };
@@ -258,39 +217,45 @@ pub fn translate_delete_from(
 }
 
 pub fn translate_insert_into(insert: &ast::InsertIntoStmt) -> Result<SqlPlanPb, SqlTranslateError> {
-    debug!(
-        "Translating INSERT INTO statement with values: {:?}",
-        insert.values
-    );
     let mut sqlplan = SqlPlanPb {
-        sqlstmt: SqlStmtPb::InsertInto.into(),
+        sqlstmt: SqlStmtPb::InsertIntoStmt.into(),
         insts: vec![],
         values: vec![],
         max_value_idx: 0,
     };
-    // Allocate key_val_idx
-    sqlplan.values.push(SqlValuePb {
-        is_constant: true,
-        data: None,
-    });
-    sqlplan.max_value_idx += 1;
-    // Set values to insert
-    let mut val_idxs = vec![];
-    for val in &insert.values {
+    // Set valrels to insert 'val1 r1 (s1,s2) r2 () ... val2 r3 (s3, ..)'
+    let mut valsrpb = vec![];
+    for valsrs in &insert.valsrels {
+        // Convert to generic rels update
+        let relsupd = vec![ast::RelsUpdate {
+            op: ast::UpdateOp::Insert, // or appropriate operation based on context
+            rels: valsrs.rels.clone(),
+        }];
         // Values here are full json objects
         let val_idx = sqlplan.max_value_idx;
         sqlplan.values.push(SqlValuePb {
             is_constant: true,
-            data: Some(sql_value_pb::Data::StringValue(val.clone())),
+            data: Some(sql_value_pb::Data::StringValue(valsrs.val.clone())),
         });
         sqlplan.max_value_idx = val_idx + 1;
-        val_idxs.push(val_idx);
+
+        // Rels to update for one value
+        let res = utils::translate_update_rels(&relsupd, &mut sqlplan);
+        if res.is_err() {
+            return Err(res.err().unwrap());
+        }
+        // Set value with rels update
+        let valrpb = ValRelsUpdPb {
+            key_val_idx: 0, // one dataset item at a time
+            val_idx,
+            relupd: res.unwrap(),
+        };
+        valsrpb.push(valrpb);
     }
-    let iinsert = sqlinsts::IInsertPb {
+    let iinsert = IInsertPb {
         ds_name: insert.ds_name.clone(),
-        ds_id: 0,       // Set by the optimizer
-        key_val_idx: 0, // Only one dataset
-        val_idxs: val_idxs,
+        ds_id: 0, // Set by the optimizer
+        valsrels: valsrpb,
     };
     sqlplan.insts.push(SqlInstPb {
         inst: Some(sql_inst_pb::Inst::Insert(iinsert)),
@@ -302,94 +267,58 @@ pub fn translate_update(
     update: &ast::UpdateStmt,
     sqlplan: &mut SqlPlanPb,
 ) -> Result<(), SqlTranslateError> {
-    let mut valixs = vec![];
-    let mut updsegs = vec![];
-    for setval in &update.values {
-        let val_idx = add_constant_value(sqlplan, &setval.value)?;
-        valixs.push(val_idx);
-        let segs_str = setval.fieldsegs.segments.join(".");
-        updsegs.push(segs_str);
-    }
-    let set_inst = SqlInstPb {
-        inst: Some(sql_inst_pb::Inst::Update(sqlinsts::IUpdatePb {
-            key_val_idx: 0,
-            val_idxs: valixs,
-            pathsegs: updsegs,
-        })),
-    };
-    sqlplan.insts.push(set_inst);
-    Ok(())
-}
+    for action in &update.actions {
+        debug!(
+            "Translating UPDATE statement with values: {:?}",
+            action.setvals
+        );
+        let mut valixs = vec![];
+        let mut updsegs = vec![];
 
-pub fn translate_yank(
-    yank: &ast::YankStmt,
-    sqlplan: &mut SqlPlanPb,
-) -> Result<(), SqlTranslateError> {
-    let mut yanksegs = vec![];
-    for segs in &yank.fields {
-        let segs_str = segs.segments.join(".");
-        yanksegs.push(segs_str);
-    }
-    let set_inst = SqlInstPb {
-        inst: Some(sql_inst_pb::Inst::Yank(sqlinsts::IYankPb {
-            key_val_idx: 0,
-            pathsegs: yanksegs,
-        })),
-    };
-    sqlplan.insts.push(set_inst);
-    Ok(())
-}
-
-pub fn translate_update_rel(
-    update: &ast::UpdateRelStmt,
-    sqlplan: &mut SqlPlanPb,
-) -> Result<(), SqlTranslateError> {
-    // TBD - should put response with number of successors added, make sure we don't
-    // TBD - insert duplicates if same PK successor already there.
-
-    // Loop through the stmt target PK values. For each RelSuccessor create a set of SqlValuePb and a
-    // range to query the target dataset PK index.
-    let mut composite_ranges = vec![];
-    for successor in &update.values {
-        let mut ranges = vec![];
-        for val in &successor.s {
-            // Generate SqlValuePb for this PK segment
-            let val_idx = add_constant_value(sqlplan, val)?;
-            ranges.push(sqlinsts::RangePb {
-                lower_bound_val_idx: val_idx,
-                lower_bound_nb_vals: 1,
-                upper_bound_val_idx: val_idx,
-                lower_op: CompOperatorPb::Eq as i32,
-                upper_op: CompOperatorPb::Eq as i32,
+        // Set values
+        for setval in &action.setvals {
+            let val_idx = utils::add_constant_value(sqlplan, &setval.value)?;
+            valixs.push(val_idx);
+            updsegs.push(PathUpdPb {
+                upd_op: UpdateOpPb::Update as i32,
+                val_idx: val_idx,
+                pathsegs: setval.fieldsegs.segments.join("."),
             });
         }
-        composite_ranges.push(sqlinsts::CompositeRangePb { ranges });
-        debug!(
-            "Composite range for successor: {:?}",
-            composite_ranges.last().unwrap()
-        );
-    }
-    let upd_type = match update.update_type {
-        ast::UpdateType::Insert => RelOpPb::Insert as i32,
-        ast::UpdateType::Delete => RelOpPb::Delete as i32,
-        _ => return Err(SqlTranslateError::InvalidUpdate),
-    };
-    let irelupdate = IRelUpdPb {
-        name: update.name.clone(),
-        ds_name: "".to_string(), // Unused for DML
-        upd_type: upd_type,
-        rel_id: 0,                   // Set by the analyzer
-        tgt_ds_name: "".to_string(), // Set by the analyzer
-        tgt_ds_id: 0,                // Set by the analyzer
-        tgt_index_root_id: 0,        // Set by the analyzer
-        key_val_idx: -1,             // Set by the analyzer. Maps to iclass/iindex scan key val idx
-        ranges: composite_ranges,
-    };
 
-    let relupdate_inst = SqlInstPb {
-        inst: Some(sql_inst_pb::Inst::RelUpdate(irelupdate)),
-    };
-    sqlplan.insts.push(relupdate_inst);
+        // Delete values
+        for delelt in &action.delelts {
+            updsegs.push(PathUpdPb {
+                upd_op: UpdateOpPb::Delete as i32,
+                val_idx: 0, // no need
+                pathsegs: delelt.segments.join("."),
+            });
+        }
+
+        // Rels insert/remove/clear
+        let res = utils::translate_update_rels(&action.updrels, sqlplan);
+        if res.is_err() {
+            return Err(res.err().unwrap());
+        }
+        let relupd = res.unwrap();
+        let mut relupds = vec![];
+        if !relupd.is_empty() {
+            relupds = vec![ValRelsUpdPb {
+                key_val_idx: 0, // one dataset item at a time
+                val_idx: -1,    // unused for rel update
+                relupd: relupd,
+            }];
+        }
+        let set_inst = SqlInstPb {
+            inst: Some(sql_inst_pb::Inst::Update(IUpdatePb {
+                key_val_idx: 0,
+                upd_op: UpdateOpPb::Update as i32,
+                pathupds: updsegs,
+                relupds: relupds,
+            })),
+        };
+        sqlplan.insts.push(set_inst);
+    }
     Ok(())
 }
 
@@ -410,8 +339,8 @@ pub fn translate_idataset(
     dataset_item: &ast::FromListItem,
 ) -> Result<(), SqlTranslateError> {
     // Add placeholder for item keys retrieved from dataset nested loop
-    let idx = add_value(sqlplan, false, None);
-    let idataset = sqlinsts::IDatasetPb {
+    let idx = utils::add_value(sqlplan, false, None);
+    let idataset = IDatasetPb {
         name: dataset_item.ds_name.to_string(),
         dataset_id: 0, // set by the optimizer
         key_val_idx: idx,
@@ -437,12 +366,12 @@ pub fn translate_predicates(
         for member in members.iter_mut() {
             match &member.part {
                 ast::MemberPart::Value(const_val) => {
-                    val_idx[val_idx_elt] = add_constant_value(sqlplan, const_val)?;
+                    val_idx[val_idx_elt] = utils::add_constant_value(sqlplan, const_val)?;
                     right_val_cnt = 1;
                 }
                 ast::MemberPart::ValueList(values) => {
                     for val in values.iter() {
-                        let idx = add_constant_value(sqlplan, val)?;
+                        let idx = utils::add_constant_value(sqlplan, val)?;
                         if val_idx[val_idx_elt] == -1 {
                             val_idx[val_idx_elt] = idx;
                         }
@@ -485,7 +414,7 @@ pub fn translate_expr(
 ) -> Result<i32, SqlTranslateError> {
     let lval_idx = match &left.part {
         ast::MemberPart::ValueList(_) => -1, // do nothing
-        ast::MemberPart::Value(const_val) => add_constant_value(sqlplan, const_val)?,
+        ast::MemberPart::Value(const_val) => utils::add_constant_value(sqlplan, const_val)?,
         ast::MemberPart::Path(path_segments) => {
             translate_idatapath(sqlplan, from_list, path_segments, eval_phase)?
         }
@@ -495,7 +424,7 @@ pub fn translate_expr(
     };
     let rval_idx = match &right.part {
         ast::MemberPart::ValueList(_) => -1, // do nothing
-        ast::MemberPart::Value(const_val) => add_constant_value(sqlplan, const_val)?,
+        ast::MemberPart::Value(const_val) => utils::add_constant_value(sqlplan, const_val)?,
         ast::MemberPart::Path(path_segments) => {
             translate_idatapath(sqlplan, from_list, path_segments, eval_phase)?
         }
@@ -505,15 +434,15 @@ pub fn translate_expr(
     };
     // For simplicity we only handle binary expressions with comparison operators here
     let math_op = match op {
-        ast::ArithOperator::Plus => sqlinsts::OperPb::Add,
-        ast::ArithOperator::Minus => sqlinsts::OperPb::Sub,
-        ast::ArithOperator::Multiply => sqlinsts::OperPb::Mul,
-        ast::ArithOperator::Divide => sqlinsts::OperPb::Div,
+        ast::ArithOperator::Plus => OperPb::Add,
+        ast::ArithOperator::Minus => OperPb::Sub,
+        ast::ArithOperator::Multiply => OperPb::Mul,
+        ast::ArithOperator::Divide => OperPb::Div,
     };
     // Add a placeholder value to hold the result
-    let resval_idx = add_value(sqlplan, false, None);
+    let resval_idx = utils::add_value(sqlplan, false, None);
 
-    let iexpr = sqlinsts::IExprPb {
+    let iexpr = IExprPb {
         lval_idx,
         rval_idx,
         resval_idx,
@@ -551,7 +480,7 @@ pub fn translate_icompare(
         }
         _ => {}
     }
-    let icomp = sqlinsts::IComparePb {
+    let icomp = IComparePb {
         left_val_idx: left_val_idx,
         right_val_idx: right_val_idx,
         right_val_cnt: right_val_cnt,
@@ -594,7 +523,7 @@ fn translate_proj(
                 val_idx = -1; // do nothing
             }
             ast::MemberPart::Value(const_val) => {
-                val_idx = add_constant_value(sqlplan, const_val)?;
+                val_idx = utils::add_constant_value(sqlplan, const_val)?;
             }
             ast::MemberPart::Path(path_segs) => {
                 val_idx =
@@ -703,7 +632,7 @@ pub fn translate_idatapath(
     if !ds_matched && from_list.len() > 1 {
         return Err(SqlTranslateError::AmbiguousDatapath(path_str));
     }
-    let dpth_val_idx = add_value(sqlplan, false, None);
+    let dpth_val_idx = utils::add_value(sqlplan, false, None);
     let idatapath = IDatapathPb {
         phase: phase as i32,
         alias: alias.clone(),
@@ -726,67 +655,4 @@ pub fn translate_idatapath(
     sqlplan.insts.push(msg.clone());
     // TBD - handle multiple from datasets
     Ok(dpth_val_idx)
-}
-
-pub fn add_constant_value(
-    sqlplan: &mut SqlPlanPb,
-    const_val: &ast::ConstValue,
-) -> Result<i32, SqlTranslateError> {
-    let val_idx = sqlplan.max_value_idx;
-    match const_val {
-        ast::ConstValue::IsNull() => {
-            add_value(sqlplan, true, None);
-        }
-        ast::ConstValue::Null() => {
-            add_value(sqlplan, true, Some(sql_value_pb::Data::NullValue(true)));
-        }
-        ast::ConstValue::Bool(bool_val) => {
-            add_value(
-                sqlplan,
-                true,
-                Some(sql_value_pb::Data::BoolValue(*bool_val)),
-            );
-        }
-        ast::ConstValue::Number(num_str) => {
-            if num_str.contains('.') {
-                // Get number and scale for decimal value
-                let parts: Vec<&str> = num_str.split('.').collect();
-                let number = parts[0].to_string() + parts[1];
-                let scale = parts[1].len() as u32;
-                // First convert number to i64 with overflow check
-                let number_i: i64 = number
-                    .parse()
-                    .map_err(|_| SqlTranslateError::DecimalOverflow)?;
-                add_value(
-                    sqlplan,
-                    true,
-                    Some(sql_value_pb::Data::DecimalValue(DecimalValuePb {
-                        number: number_i,
-                        scale,
-                    })),
-                );
-            } else {
-                add_value(
-                    sqlplan,
-                    true,
-                    Some(sql_value_pb::Data::Int64Value(
-                        num_str
-                            .parse()
-                            .map_err(|_| SqlTranslateError::DecimalOverflow)?,
-                    )),
-                );
-            }
-        }
-        ast::ConstValue::SingleQuotedString(s) => {
-            add_value(
-                sqlplan,
-                true,
-                Some(sql_value_pb::Data::StringValue(s.clone())),
-            );
-        }
-        ast::ConstValue::DoubleQuotedString(_) => {
-            // unused outside of jsonpath
-        }
-    }
-    Ok(val_idx)
 }

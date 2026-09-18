@@ -1,15 +1,17 @@
 
 use crate::ast::{
-    SqlStmt, CreateDatasetStmt, DropDatasetStmt, RelDef, RelSuccessor, SelectStmt, InsertIntoStmt,
-    UpdateStmt, YankStmt, UpdateRelStmt, DeleteFromStmt,  FromListItem, Predicate, Member,
+    SqlStmt, CreateDatasetStmt, DropDatasetStmt, RelDef, RelElt, SelectStmt, InsertIntoStmt,
+    UpdateStmt, DeleteFromStmt,  FromListItem, Predicate, Member,
     MemberPart, ConstValue, PathSegments, PathSegment, FieldSegments, PredLogicOperator, ArithOperator,
-    CompOperator, UpdateType, SetValue, AlterAction, AlterDatasetStmt, IndexDef, IndexType,
-    DescribeDatasetStmt, append_jsonpath,
+    CompOperator, UpdateOp, SetValue, AlterAction, AlterDatasetStmt, IndexDef, IndexType,
+    DescribeDatasetStmt, append_jsonpath, RelUpdate, RelsUpdate, ValRels, UpdateAction
 };
+
+use crate::SqlParseError;
+
 use crate::lexer;
 //use crate::lexer::{Lexer, Tok, Location, LexicalError};
 use crate::lexer::Tok;
-
 use lalrpop_util::ParseError;
 
 // Parser expects tokens of shape: (usize, Tok, usize)
@@ -40,7 +42,9 @@ extern {
         "INDEX" => lexer::Tok::Index,
         "INSERT" => lexer::Tok::Insert,
         "DELETE" => lexer::Tok::Delete,
+        "REMOVE" => lexer::Tok::Remove,
         "UPDATE" => lexer::Tok::Update,
+        "CLEAR" => lexer::Tok::Clear,
         "SET" => lexer::Tok::Set,
         "INTO" => lexer::Tok::Into,
         "VALUES" => lexer::Tok::Values,
@@ -82,6 +86,7 @@ extern {
         "integer" => lexer::Tok::Integer(<String>),
         "singlequotedstring" => lexer::Tok::SingleQuotedString(<String>),
         "doublequotedstring" => lexer::Tok::DoubleQuotedString(<String>),
+        "lexerror" => lexer::Tok::LexError(<String>),
     }
 }
 
@@ -92,10 +97,8 @@ pub SqlStmtExpr: SqlStmt = {
     <stmt:AlterDatasetExpr> => stmt,
     <stmt:InsertIntoExpr> => stmt,
     <stmt:DeleteFromExpr> => stmt,
-    <stmt:UpdateWhereExpr> => stmt,
+    <stmt:UpdateExpr> => stmt,
     <stmt:DeleteFromWhereExpr> => stmt,
-    <stmt:InsertRelExpr> => stmt,
-    <stmt:DeleteRelExpr> => stmt,
     <stmt:SelectProjExpr> => stmt,
     <stmt:SelectFromExpr> => stmt,
     <stmt:SelectFromWhereExpr> => stmt,
@@ -103,21 +106,12 @@ pub SqlStmtExpr: SqlStmt = {
 
 // CREATE DATASET xxx;
 CreateDatasetExpr: SqlStmt = {
-    "CREATE" "DATASET" <ds_name:"ident"> => {
+    // CREATE DATASET ds PRIMARY KEY (a, b) RELATIONSHIP rel(tgt) ...;
+    "CREATE" "DATASET" <ds_name:"ident"> <actions:SpaceSep<CreateActionExpr>> => {
         SqlStmt::CreateDataset(
             CreateDatasetStmt {
                 name: ds_name,
-                actions: vec![],
-            }
-        )
-    },
-    // CREATE DATASET ds PRIMARY KEY (a, b), RELATIONSHIP rel(tgt), ...;
-    <stmt:CreateDatasetExpr> <actions:CommaSep<CreateActionExpr>> => {
-        let SqlStmt::CreateDataset(stmt) = stmt else { panic!("missing dataset expr") };
-        SqlStmt::CreateDataset(
-            CreateDatasetStmt {
                 actions: actions,
-                ..stmt
             }
         )
     }
@@ -127,7 +121,7 @@ CreateActionExpr: AlterAction = {
     "RELATIONSHIP" <rel:"ident"> "(" <tgtds:"ident"> ")" => {
         AlterAction::AddRel(
             RelDef {
-                update_type: UpdateType::DdlAdd,
+                update_type: UpdateOp::DdlAdd,
                 name: rel,
                 tgt_dataset: tgtds,
             }
@@ -138,7 +132,7 @@ CreateActionExpr: AlterAction = {
             IndexDef {
                 name: "".to_string(),
                 idx_type: IndexType::Pkey,
-                update_type: UpdateType::DdlAdd,
+                update_type: UpdateOp::DdlAdd,
                 fields: f,
             }
         )
@@ -148,7 +142,7 @@ CreateActionExpr: AlterAction = {
             IndexDef {
                 name: n,
                 idx_type: IndexType::NonUnique,
-                update_type: UpdateType::DdlAdd,
+                update_type: UpdateOp::DdlAdd,
                 fields: fields,
             }
         )
@@ -158,7 +152,7 @@ CreateActionExpr: AlterAction = {
             IndexDef {
                 name: n,
                 idx_type: IndexType::Unique,
-                update_type: UpdateType::DdlAdd,
+                update_type: UpdateOp::DdlAdd,
                 fields: fields,
             }
         )
@@ -192,7 +186,7 @@ DescribeDatasetExpr: SqlStmt = {
 
 // ALTER DATASET ds DROP RELATIONSHIP rel, ADD RELATIONSHIP rel(tgtds), ...
 AlterDatasetExpr: SqlStmt = {
-    "ALTER" "DATASET" <name:"ident"> <acts:CommaSep<AlterActionExpr>> => {
+    "ALTER" "DATASET" <name:"ident"> <acts:SpaceSep<AlterActionExpr>> => {
         let stmt = SqlStmt::AlterDataset(
             AlterDatasetStmt {
                 ds_name: name,
@@ -207,7 +201,7 @@ AlterActionExpr: AlterAction = {
     "ADD" "RELATIONSHIP" <rel:"ident"> "(" <tgtds:"ident"> ")" => {
         let action = AlterAction::AddRel(
             RelDef {
-                update_type: UpdateType::DdlAdd,
+                update_type: UpdateOp::DdlAdd,
                 name: rel,
                 tgt_dataset: tgtds,
             }
@@ -222,7 +216,7 @@ AlterActionExpr: AlterAction = {
             IndexDef {
                 name: "".to_string(),
                 idx_type: IndexType::Pkey,
-                update_type: UpdateType::DdlAdd,
+                update_type: UpdateOp::DdlAdd,
                 fields: fields,
             }
         )
@@ -238,7 +232,7 @@ AlterActionExpr: AlterAction = {
             IndexDef {
                 name: n,
                 idx_type: IndexType::NonUnique,
-                update_type: UpdateType::DdlAdd,
+                update_type: UpdateOp::DdlAdd,
                 fields: fields,
             }
         )
@@ -248,7 +242,7 @@ AlterActionExpr: AlterAction = {
             IndexDef {
                 name: n,
                 idx_type: IndexType::Unique,
-                update_type: UpdateType::DdlAdd,
+                update_type: UpdateOp::DdlAdd,
                 fields: fields,
             }
         )
@@ -281,77 +275,91 @@ DeleteFromExpr: SqlStmt = {
    },
 }
 
-UpdateWhereExpr: SqlStmt = {
+UpdateExpr: SqlStmt = {
     // UPDATE dataset SET a = '..', b.c = '..'
-    "UPDATE" <ds:"ident"> "SET" <svals:CommaSep<SetValueExpr>> "WHERE" <preds:PredicateListExpr> => {
+    "UPDATE" <ds:"ident"> <acts:SpaceSep<UpdateActionsExpr>> "WHERE" <preds:PredicateListExpr> => {
         let stmt = SqlStmt::Update(
             UpdateStmt {
                 ds_name: ds,
-                values: svals,
+                actions: acts,
                 predicate_list: preds,
             }
         );
         stmt
     },
-    // UPDATE dataset DELETE a, b ...
-    "UPDATE" <ds:"ident"> "DELETE" <yk:CommaSep<FieldSegsExpr>> "WHERE" <preds:PredicateListExpr> => {
-        let stmt = SqlStmt::Yank(
-            YankStmt {
-                ds_name: ds,
-                fields: yk,
-                predicate_list: preds,
+}
+
+UpdateActionsExpr: UpdateAction = {
+    // SET a = '..'  b.c = '..'
+    "SET" <svals:SpaceSep<SetValueExpr>> => {
+        UpdateAction {
+          delelts: vec![],
+          setvals: svals,
+          updrels: vec![],
+        }
+    },
+    // DELETE a, b.c
+    "DELETE" <d:SpaceSep<FieldSegsExpr>> => {
+        UpdateAction {
+          delelts: d,
+          setvals: vec![],
+          updrels: vec![],
+        }
+    },
+    // INSERT r1 (a,b) (...) r2 (c,d) ...
+    "INSERT" <ur:SpaceSep<RelUpdateExpr>> => {
+        UpdateAction {
+          delelts: vec![],
+          setvals: vec![],
+          updrels: vec![
+            RelsUpdate {
+                op: UpdateOp::Insert,
+                rels: ur,
             }
-        );
-        stmt
+          ],
+        }
+    },
+    // REMOVE r1 (a,b) (...) r2 (c,d) ...
+    "REMOVE" <ur:SpaceSep<RelUpdateExpr>> => {
+        UpdateAction {
+          delelts: vec![],
+          setvals: vec![],
+          updrels: vec![
+            RelsUpdate {
+                op: UpdateOp::Delete,
+                rels: ur,
+            }
+          ],
+        }
+    },
+    "CLEAR" <ur:SpaceSep<RelClearExpr>> => {
+        UpdateAction {
+          delelts: vec![],
+          setvals: vec![],
+          updrels: vec![
+            RelsUpdate {
+                op: UpdateOp::Clear,
+                rels: ur,
+            }
+          ],
+        } 
     }
 }
 
 InsertIntoExpr: SqlStmt = {
-   // INSERT INTO dataset VALUES '{...}', '{...}'
-   "INSERT" "INTO" <ds_name:"ident"> "VALUES" <list_vals:QuotedListExpr> => {
+   // INSERT INTO dataset VALUES
+   //   '{... v1 ...}' r1 (...) (...) r2 ... ,
+   //   '{... v2 ...}' r3 ...
+   "INSERT" "INTO" <ds_name:"ident"> "VALUES" <vrs:CommaSep<ValRelsExpr>> => {
         let stmt = SqlStmt::InsertInto(
             InsertIntoStmt {
                 ds_name: ds_name,
-                values: list_vals,
+                valsrels: vrs,
             }
         );
         stmt
     }
 }
-
-// -- Relationship insert --
-InsertRelExpr: SqlStmt = {
-   // INSERT INTO student(enrollment) VALUES "history", "art" WHERE ...
-   "INSERT" "INTO" <ds_name:"ident"> "." <rel_name:"ident">  "VALUES" <rs:RelSuccessorListExpr> "WHERE" <pred_list:PredicateListExpr> => {
-        let stmt = SqlStmt::UpdateRel(
-            UpdateRelStmt {
-                name: rel_name,
-                update_type: UpdateType::Insert,
-                values: rs,
-                from_list: vec![ FromListItem { ds_name: ds_name, alias: None } ],
-                predicate_list: pred_list,
-            }
-        );
-        stmt
-   }
-}   
-
-// -- Relationship delete --
-DeleteRelExpr: SqlStmt = {
-   // DELETE FROM student(enrollment) VALUES "history", "art" WHERE ...
-   "DELETE" "FROM" <ds_name:"ident"> "." <rel_name:"ident">  "VALUES" <rs:RelSuccessorListExpr> "WHERE" <pred_list:PredicateListExpr> => {
-        let stmt = SqlStmt::UpdateRel(
-            UpdateRelStmt {
-                name: rel_name,
-                update_type: UpdateType::Delete,
-                values: rs,
-                from_list: vec![ FromListItem { ds_name: ds_name, alias: None } ],
-                predicate_list: pred_list,
-            }
-        );
-        stmt
-   }
-}   
 
 SelectFromWhereExpr: SqlStmt = {
     <stmt:SelectFromExpr> "WHERE" <pred_list:PredicateListExpr> => {
@@ -559,6 +567,11 @@ OperatorSymbExpr: ArithOperator = {
     "-" => ArithOperator::Minus,
 }
 
+// Generic space separated list
+SpaceSep<T>: Vec<T> = {
+    <v:(<T>)*> => v
+}
+
 // Generic comma separated list
 CommaSep<T>: Vec<T> = {
     <mut v:(<T> ",")*> <e:T> => {
@@ -664,19 +677,46 @@ SingleQuotedStringExpr: String = {
     "singlequotedstring" => <>,
 }
 
-RelSuccessorListExpr: Vec<RelSuccessor> = {
-    <rs:CommaSep<RelSuccessorExpr>> => {
+// '{... val ... }' r1 (...) r2 (...) (...)' pattern
+ValRelsExpr: ValRels = {
+    <s:SingleQuotedStringExpr> <rx:SpaceSep<RelUpdateExpr>> => {
+        ValRels {
+            val: s,
+            rels: rx,
+        }
+    }
+}
+
+// rs
+RelClearExpr: RelUpdate = {
+    <r:"ident"> => {
+       RelUpdate {
+          name: r,
+          elts: vec![],
+       } 
+    }
+}
+
+// rs ('a', 1) ('b')
+RelUpdateExpr: RelUpdate = {
+    <r:"ident"> <rs:RelEltListExpr> => {
+       RelUpdate {
+          name: r,
+          elts: rs,
+       } 
+    }
+}
+
+RelEltListExpr: Vec<RelElt> = {
+    <rs:SpaceSep<RelEltExpr>> => {
         rs
     }
 }
 
-RelSuccessorExpr: RelSuccessor = {
-    <c:ConstValueExpr> => {
-       let s = vec![c];
-       RelSuccessor { s: s } 
-    },
+// ('a', 1) ('b')
+RelEltExpr: RelElt = {
     "(" <s:CommaSep<ConstValueExpr>> ")" => {
-       RelSuccessor { s: s } 
+       RelElt { segs: s } 
     }
 }
 
@@ -696,3 +736,10 @@ ConstValueExpr: ConstValue = {
     "singlequotedstring" => ConstValue::SingleQuotedString(<>),
 }
 
+ParseErrorExpr: SqlParseError = {
+    <l:"lexerror"> => {
+        SqlParseError::InvalidToken {
+            location: 0,
+        }
+    }
+}

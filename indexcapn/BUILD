@@ -13,35 +13,39 @@
 # limitations under the License.
 
 load("@crates//:defs.bzl", "aliases", "all_crate_deps")
+load("@rules_rust//cargo:defs.bzl", "cargo_build_script")
 load("@rules_rust//rust:defs.bzl", "rust_doc", "rust_library")
 
 package(default_visibility = ["//visibility:public"])
 
-genrule(
-    name = "generate_indexkey",
-    srcs = ["src/indexkey.capnp"],
-    outs = ["src/indexkey_capnp.rs"],
-    cmd = """
-       capnpc -orust $(location src/indexkey.capnp)
-       mv indexcapn/src/indexkey_capnp.rs $(RULEDIR)/src/indexkey_capnp.rs
-    """,
+cargo_build_script(
+    name = "build_script",
+    srcs = ["build.rs"],
+    data = ["src/indexkey.capnp"],
+    edition = "2021",
+    deps = all_crate_deps(
+        build = True,
+    ),
 )
 
 rust_doc(
     name = "doc",
     crate = ":lib",
+    rustdoc_flags = ["--cfg=bazel_build"],
 )
 
 rust_library(
     name = "lib",
     srcs = [
-        "src/indexkey_capnp.rs",
         "src/lib.rs",
     ],
     aliases = aliases(),
     crate_name = "indexcapn",
+    rustc_flags = ["--cfg=bazel_build"],
+    crate_root = "src/lib.rs",
     visibility = ["//visibility:public"],
     deps = [
+        ":build_script",
     ] + all_crate_deps(
         normal = True,
     ),

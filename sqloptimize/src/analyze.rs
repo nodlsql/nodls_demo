@@ -14,7 +14,7 @@
 
 use jbparse::DatasetDesc;
 use sqlexet::SqlExeTrait;
-use sqlinsts::{
+use sqlinsts::sqlinsts::{
     sql_inst_pb::Inst, CompositeRangePb, DdlOpPb, EvalPhasePb, IComparePb, IDatapathPb, IIndexPb,
     RangePb, SqlPlanPb, SqlStmtPb, SqlValuePb,
 };
@@ -24,7 +24,7 @@ use tracing::debug;
 use crate::utils::{
     build_ds_desc_analyzer, build_rel_details_for_reldesc, compute_index_range_for_datapath,
     get_index_candidates_for_dataset, get_invrel_for_offset, get_pkey_index_for_dataset,
-    DatapathAnalyzer, DatasetAnalyzer, IndexAnalyzer, RelAnalyzer, SqlTranslateError,
+    DatapathAnalyzer, DatasetAnalyzer, IndexAnalyzer, RelAnalyzer, SqlAnalyzeError,
     MIN_USER_DATASET_ID,
 };
 
@@ -71,7 +71,7 @@ macro_rules! dataset_analyzer_push {
 pub fn get_dataset_analyzers(
     ctxt: &impl SqlExeTrait,
     sqlplan: &SqlPlanPb,
-) -> Result<Vec<DatasetAnalyzer>, SqlTranslateError> {
+) -> Result<Vec<DatasetAnalyzer>, SqlAnalyzeError> {
     let mut dataset_analyzers: Vec<DatasetAnalyzer> = Vec::new();
     let mut create_ds = false;
     for inst in &sqlplan.insts {
@@ -149,7 +149,7 @@ pub fn get_dataset_analyzers(
                             break;
                         }
                     } else {
-                        return Err(SqlTranslateError::DatasetNotFound(parent_ds_name.clone()));
+                        return Err(SqlAnalyzeError::DatasetNotFound(parent_ds_name.clone()));
                     }
                 }
             }
@@ -172,7 +172,7 @@ pub fn get_dataset_analyzers(
                         dataset_analyzers.push(analyzer);
                     }
                 } else {
-                    return Err(SqlTranslateError::DatasetNotFound(d.name.clone()));
+                    return Err(SqlAnalyzeError::DatasetNotFound(d.name.clone()));
                 }
             }
             Some(Inst::DdlUpdate(d)) => {
@@ -193,12 +193,12 @@ pub fn get_dataset_analyzers(
                         // Make sure there is a primary key for the target dataset
                         if let None = get_pkey_index_for_dataset(&d.rs_tgt_name, &dataset_analyzers)
                         {
-                            return Err(SqlTranslateError::PrimaryKeyNotFound(
+                            return Err(SqlAnalyzeError::PrimaryKeyNotFound(
                                 d.rs_tgt_name.clone(),
                             ));
                         }
                     } else {
-                        return Err(SqlTranslateError::DatasetNotFound(d.rs_tgt_name.clone()));
+                        return Err(SqlAnalyzeError::DatasetNotFound(d.rs_tgt_name.clone()));
                     }
                 }
                 // Get the dataset analyzer if create or alter dataset, if found and create error out
@@ -211,22 +211,22 @@ pub fn get_dataset_analyzers(
                 );
                 if let Ok(analyzer_opt) = res {
                     if create_ds {
-                        return Err(SqlTranslateError::DatasetAlreadyExists(d.ds_name.clone()));
+                        return Err(SqlAnalyzeError::DatasetAlreadyExists(d.ds_name.clone()));
                     }
                     dataset_analyzer_push!(analyzer_opt, dataset_analyzers);
                 } else {
                     if !create_ds {
-                        return Err(SqlTranslateError::DatasetNotFound(d.ds_name.clone()));
+                        return Err(SqlAnalyzeError::DatasetNotFound(d.ds_name.clone()));
                     }
                 }
             }
             Some(Inst::Insert(i)) => {
-                // Note that key_val_idx is valid only for initial datasets in from clause, we fill it in optimizer for rel successor datasets
+                // Note that key_val_idx is valid only for initial datasets in from clause
                 let res = build_dataset_analyzer(
                     ctxt,
                     sqlplan,
                     &i.ds_name,
-                    i.key_val_idx,
+                    -1,
                     &dataset_analyzers,
                 );
                 if let Ok(analyzer_opt) = res {
@@ -239,7 +239,7 @@ pub fn get_dataset_analyzers(
                         dataset_analyzers.push(analyzer);
                     }
                 } else {
-                    return Err(SqlTranslateError::DatasetNotFound(i.ds_name.clone()));
+                    return Err(SqlAnalyzeError::DatasetNotFound(i.ds_name.clone()));
                 }
             }
             _ => continue,
@@ -255,7 +255,7 @@ fn build_dataset_analyzer(
     ds_name: &String,
     dataset_key_val_idx: i32, // initial value for 'from list', to be updated for rel successor datasets
     dataset_analyzers: &Vec<DatasetAnalyzer>,
-) -> Result<Option<DatasetAnalyzer>, SqlTranslateError> {
+) -> Result<Option<DatasetAnalyzer>, SqlAnalyzeError> {
     debug!("Build dataset analyzer for dataset '{}'", ds_name);
     let res = build_ds_desc_analyzer(ctxt, ds_name, dataset_key_val_idx, dataset_analyzers);
     if let Ok(analyzer_opt) = res {
@@ -278,7 +278,7 @@ fn build_dataset_analyzer(
             return Ok(None);
         }
     }
-    Err(SqlTranslateError::DatasetNotFound(ds_name.clone()))
+    Err(SqlAnalyzeError::DatasetNotFound(ds_name.clone()))
 }
 
 fn build_rel_details_for_dataset(
@@ -305,10 +305,10 @@ pub fn get_index_analyzers_for_dataset(
     let mut idx_analyzers = Vec::new();
     for index_inst in iindex_candidates {
         // For delete statement, we need all indexes on board
-        if sqlplan.sqlstmt == SqlStmtPb::DeleteFrom as i32
-            || sqlplan.sqlstmt == SqlStmtPb::Update as i32
-            || sqlplan.sqlstmt == SqlStmtPb::InsertInto as i32
-            || sqlplan.sqlstmt == SqlStmtPb::AlterDataset as i32
+        if sqlplan.sqlstmt == SqlStmtPb::DeleteFromStmt as i32
+            || sqlplan.sqlstmt == SqlStmtPb::UpdateStmt as i32
+            || sqlplan.sqlstmt == SqlStmtPb::InsertIntoStmt as i32
+            || sqlplan.sqlstmt == SqlStmtPb::AlterDsStmt as i32
         {
             let index_analyzer = IndexAnalyzer {
                 iindex: IIndexPb {

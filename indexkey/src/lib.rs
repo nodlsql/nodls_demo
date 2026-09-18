@@ -17,7 +17,7 @@ use indexcapn::indexkey_capnp::{
 };
 use sqlexet::MtOidT;
 
-use sqlinsts::{sql_value_pb::Data, DecimalValuePb, SqlValuePb};
+use sqlinsts::sqlinsts::{sql_value_pb::Data, DecimalValuePb, SqlValuePb};
 use std::cell::RefCell;
 
 #[macro_export]

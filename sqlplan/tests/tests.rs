@@ -14,14 +14,16 @@
 
 use bytes::Bytes;
 use prost::Message;
-use sqlinsts;
-use sqlinsts::SqlStmtPb;
-use sqloptimize::utils::pretty_print_plan;
-use sqlparser::ast;
+use sqlinsts::sqlinsts::{
+    sql_inst_pb, sql_value_pb, CompOperatorPb, IComparePb, IDatasetPb, SqlInstPb, SqlPlanPb,
+    SqlStmtPb, SqlValuePb,
+};
+use sqlplan::utils::pretty_print_plan;
+use sqlparse::ast;
 
 #[test]
 fn test_encode_idataset() {
-    let msg = sqlinsts::IDatasetPb {
+    let msg = IDatasetPb {
         dataset_id: 42,
         key_val_idx: 7,
         name: "a.b.c".to_string(),
@@ -35,29 +37,29 @@ fn test_encode_idataset() {
     println!("Serialized: {:?}", buf);
 
     // Deserialize the message into the generated concrete type
-    let decoded = sqlinsts::IDatasetPb::decode(Bytes::copy_from_slice(&buf)).unwrap();
+    let decoded = IDatasetPb::decode(Bytes::copy_from_slice(&buf)).unwrap();
     println!("Deserialized: {:?}", decoded);
 }
 
 #[test]
 fn test_encode_sqlplan() {
     //encode_icompare();
-    let icomp = sqlinsts::IComparePb {
-        comp: sqlinsts::CompOperatorPb::Eq as i32,
+    let icomp = IComparePb {
+        comp: CompOperatorPb::Eq as i32,
         left_val_idx: 11,
         right_val_idx: 22,
         right_val_cnt: 1,
     };
-    let inst = sqlinsts::SqlInstPb {
-        inst: Some(sqlinsts::sql_inst_pb::Inst::Comp(icomp)),
+    let inst = SqlInstPb {
+        inst: Some(sql_inst_pb::Inst::Comp(icomp)),
     };
-    let val = sqlinsts::SqlValuePb {
+    let val = SqlValuePb {
         is_constant: true,
-        data: Some(sqlinsts::sql_value_pb::Data::Int64Value(42)),
+        data: Some(sql_value_pb::Data::Int64Value(42)),
     };
 
-    let mut sqlplan = sqlinsts::SqlPlanPb {
-        sqlstmt: SqlStmtPb::Select.into(),
+    let mut sqlplan = SqlPlanPb {
+        sqlstmt: SqlStmtPb::SelectStmt.into(),
         insts: vec![],
         values: vec![],
         max_value_idx: 1,
@@ -76,29 +78,29 @@ fn test_encode_sqlplan() {
     println!("Serialized: {:?}", buf);
 
     // Deserialize the message into the generated concrete type
-    let decoded = sqlinsts::SqlPlanPb::decode(Bytes::copy_from_slice(&buf)).unwrap();
+    let decoded = SqlPlanPb::decode(Bytes::copy_from_slice(&buf)).unwrap();
     println!("Deserialized: {:?}", decoded);
 }
 
 #[test]
 fn test_pretty_print_sqlplan() {
     // Build a tiny plan with one instruction and one value
-    let icomp = sqlinsts::IComparePb {
-        comp: sqlinsts::CompOperatorPb::Eq as i32,
+    let icomp = IComparePb {
+        comp: CompOperatorPb::Eq as i32,
         left_val_idx: 1,
         right_val_idx: 2,
         right_val_cnt: 1,
     };
-    let inst = sqlinsts::SqlInstPb {
-        inst: Some(sqlinsts::sql_inst_pb::Inst::Comp(icomp)),
+    let inst = SqlInstPb {
+        inst: Some(sql_inst_pb::Inst::Comp(icomp)),
     };
-    let val = sqlinsts::SqlValuePb {
+    let val = SqlValuePb {
         is_constant: true,
-        data: Some(sqlinsts::sql_value_pb::Data::Int64Value(42)),
+        data: Some(sql_value_pb::Data::Int64Value(42)),
     };
 
-    let plan = sqlinsts::SqlPlanPb {
-        sqlstmt: SqlStmtPb::Select.into(),
+    let plan = SqlPlanPb {
+        sqlstmt: SqlStmtPb::SelectStmt.into(),
         insts: vec![inst],
         values: vec![val],
         max_value_idx: 2,
@@ -145,20 +147,20 @@ fn test_translate_expr() {
         comp_operator: ast::CompOperator::Eq,
         right: const_expr,
     }];
-    let mut sqlplan = sqlinsts::SqlPlanPb {
-        sqlstmt: SqlStmtPb::Select.into(),
+    let mut sqlplan = SqlPlanPb {
+        sqlstmt: SqlStmtPb::SelectStmt.into(),
         insts: vec![],
         values: vec![],
         max_value_idx: 0,
     };
     // Use the dataset_id if available
-    let idataset = sqlinsts::IDatasetPb {
+    let idataset = IDatasetPb {
         name: "test_dataset".to_string(),
         dataset_id: 111,
         key_val_idx: 0,
     };
-    let inst = sqlinsts::SqlInstPb {
-        inst: Some(sqlinsts::sql_inst_pb::Inst::Dataset(idataset)),
+    let inst = SqlInstPb {
+        inst: Some(sql_inst_pb::Inst::Dataset(idataset)),
     };
     sqlplan.insts.push(inst);
 
@@ -194,25 +196,25 @@ fn test_translate_expr() {
     );
     assert!(matches!(
         sqlplan.insts[0].inst,
-        Some(sqlinsts::sql_inst_pb::Inst::Dataset(_))
+        Some(sql_inst_pb::Inst::Dataset(_))
     ));
     assert!(matches!(
         sqlplan.insts[1].inst,
-        Some(sqlinsts::sql_inst_pb::Inst::Dpath(_))
+        Some(sql_inst_pb::Inst::Dpath(_))
     ));
     assert!(matches!(
         sqlplan.insts[3].inst,
-        Some(sqlinsts::sql_inst_pb::Inst::Comp(_))
+        Some(sql_inst_pb::Inst::Comp(_))
     ));
     assert_eq!(sqlplan.values.len(), 4, "expected 4 values in the plan");
     assert!(matches!(
         sqlplan.values[0].data,
-        Some(sqlinsts::sql_value_pb::Data::Int64Value(10))
+        Some(sql_value_pb::Data::Int64Value(10))
     ));
     assert!(matches!(sqlplan.values[1].data, None));
     assert!(matches!(sqlplan.values[2].data, None));
     assert!(matches!(
         sqlplan.values[3].data,
-        Some(sqlinsts::sql_value_pb::Data::Int64Value(20))
+        Some(sql_value_pb::Data::Int64Value(20))
     ));
 }

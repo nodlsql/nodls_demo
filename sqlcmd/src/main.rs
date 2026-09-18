@@ -462,8 +462,8 @@ fn main() -> Result<()> {
     // check if cfg demo
     #[cfg(demo)]
     {
-        println!("Running in demo mode",);
-        println!("You can profide feedback here: https://discord.gg/2bkEjjrat\n",);
+        println!("Running in demo mode.");
+        println!("You can provide feedback on discord: https://discord.gg/2bkEjjrat\n");
     }
 
     let mut ctxt = SqlContextT::new();

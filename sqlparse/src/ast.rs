@@ -21,8 +21,6 @@ pub enum SqlStmt {
     DeleteFrom(DeleteFromStmt),
     InsertInto(InsertIntoStmt),
     Update(UpdateStmt),
-    Yank(YankStmt),
-    UpdateRel(UpdateRelStmt),
     CreateDataset(CreateDatasetStmt),
     DropDataset(DropDatasetStmt),
     DescribeDataset(DescribeDatasetStmt),
@@ -59,7 +57,7 @@ pub struct AlterDatasetStmt {
     pub actions: Vec<AlterAction>,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Copy, Clone)]
 pub enum IndexType {
     Pkey,
     Unique,
@@ -70,13 +68,13 @@ pub enum IndexType {
 pub struct IndexDef {
     pub name: String,
     pub idx_type: IndexType,
-    pub update_type: UpdateType,
+    pub update_type: UpdateOp,
     pub fields: Vec<FieldSegments>, // Index seg paths like "a.b", "c"
 }
 
 #[derive(Debug)]
 pub struct RelDef {
-    pub update_type: UpdateType,
+    pub update_type: UpdateOp,
     pub name: String,
     pub tgt_dataset: String,
 }
@@ -84,7 +82,7 @@ pub struct RelDef {
 #[derive(Debug)]
 pub struct InsertIntoStmt {
     pub ds_name: String,
-    pub values: Vec<String>,
+    pub valsrels: Vec<ValRels>,
 }
 
 #[derive(Debug)]
@@ -99,21 +97,13 @@ pub struct FromListItem {
     pub alias: Option<String>,
 }
 
-#[derive(Debug, PartialEq)]
-pub enum UpdateType {
-    Insert,
-    Delete,
-    DdlAdd,
-    DdlDrop,
-}
-
-#[derive(Debug)]
-pub struct UpdateRelStmt {
-    pub name: String,              // relationship name
-    pub update_type: UpdateType,   // insert or delete
-    pub values: Vec<RelSuccessor>, // list of successor PK segments
-    pub from_list: Vec<FromListItem>,
-    pub predicate_list: Vec<Predicate>, // filter the dataset item to insert the rel into
+#[derive(Debug, PartialEq, Copy, Clone)]
+pub enum UpdateOp {
+    Insert = 0,
+    Delete = 1,
+    Clear = 2,
+    DdlAdd = 3,
+    DdlDrop = 4,
 }
 
 #[derive(Debug)]
@@ -130,17 +120,17 @@ pub struct SetValue {
 }
 
 #[derive(Debug)]
-pub struct UpdateStmt {
-    pub ds_name: String,
-    pub values: Vec<SetValue>,
-    pub predicate_list: Vec<Predicate>, // filter the dataset items to update
+pub struct UpdateAction {
+    pub delelts: Vec<FieldSegments>,    // list of field segs to delete
+    pub setvals: Vec<SetValue>,         // list of field-value pairs to update
+    pub updrels: Vec<RelsUpdate>,        // INSERT r1 () .. r2 DELETE r3 ..
 }
 
 #[derive(Debug)]
-pub struct YankStmt {
+pub struct UpdateStmt {
     pub ds_name: String,
-    pub fields: Vec<FieldSegments>,     // list of field segs to delete
     pub predicate_list: Vec<Predicate>, // filter the dataset items to update
+    pub actions: Vec<UpdateAction>,     // actions to perform on the filtered items
 }
 
 #[derive(Debug)]
@@ -164,7 +154,7 @@ pub enum MemberPart {
     ValueList(Vec<ConstValue>),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum ConstValue {
     IsNull(),
     Null(),
@@ -191,13 +181,13 @@ pub struct FieldSegments {
     pub segments: Vec<String>, // Simpler version for create index, rels ...
 }
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub enum PredLogicOperator {
     And,
     Or,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub enum ArithOperator {
     Plus,
     Minus,
@@ -205,7 +195,7 @@ pub enum ArithOperator {
     Divide,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub enum CompOperator {
     In,
     NotIn,
@@ -222,10 +212,33 @@ pub enum CompOperator {
     Le,
 }
 
-// Successor composite PKey segments
+// '{... val ... }' r1 (...) r2 (...), (...)' pattern
+#[derive(Debug, Clone)]
+pub struct ValRels {
+    pub val: String,
+    pub rels: Vec<RelUpdate>,
+}
+
+// Rel name and list of element composite PKey segments
+// 'rs (a, b) (c, d) ...'
 #[derive(Debug)]
-pub struct RelSuccessor {
-    pub s: Vec<ConstValue>,
+pub struct RelsUpdate {
+    pub op: UpdateOp,
+    pub rels: Vec<RelUpdate>,
+}
+
+// Rel name and list of element composite PKey segments
+// 'rs (a, b) (c, d) ...'
+#[derive(Debug, Clone)]
+pub struct RelUpdate {
+    pub name: String,
+    pub elts: Vec<RelElt>,
+}
+
+// Rel element composite PKey segments
+#[derive(Debug, Clone)]
+pub struct RelElt {
+    pub segs: Vec<ConstValue>,
 }
 
 // Tree print implementations
@@ -265,16 +278,8 @@ impl SqlStmt {
                 result.push_str("INSERT INTO Statement\n");
                 result.push_str(&stmt.format_tree(1));
             }
-            SqlStmt::UpdateRel(stmt) => {
-                result.push_str("UPDATE RELATIONSHIP Statement\n");
-                result.push_str(&stmt.format_tree(1));
-            }
             SqlStmt::Update(stmt) => {
                 result.push_str("UPDATE Statement\n");
-                result.push_str(&stmt.format_tree(1));
-            }
-            SqlStmt::Yank(stmt) => {
-                result.push_str("YANK Statement\n");
                 result.push_str(&stmt.format_tree(1));
             }
         }
@@ -414,91 +419,26 @@ impl TreeFormatter for InsertIntoStmt {
         for _ in 0..indent {
             result.push_str("  ");
         }
-        result.push_str("├─ Values:\n");
-        for (i, value) in self.values.iter().enumerate() {
-            for _ in 0..(indent + 1) {
-                result.push_str("  ");
-            }
-            let prefix = if i == self.values.len() - 1 {
-                "└─"
-            } else {
-                "├─"
-            };
-            result.push_str(&format!("{} {}\n", prefix, value));
-        }
-        result
-    }
-}
+        result.push_str(&format!("├─ Dataset Name: {:?}\n", self.ds_name));
 
-impl TreeFormatter for UpdateRelStmt {
-    fn format_tree(&self, indent: usize) -> String {
-        let mut result = String::new();
-        for _ in 0..indent {
-            result.push_str("  ");
-        }
-        result.push_str("├─ Relationship Name: ");
-        result.push_str(&self.name);
-        result.push_str("\n");
-
-        for _ in 0..indent {
-            result.push_str("  ");
-        }
-        result.push_str("├─ Target Dataset: ");
-        for (i, member) in self.from_list.iter().enumerate() {
-            for _ in 0..(indent + 1) {
-                result.push_str("  ");
-            }
-            let prefix = if i == self.from_list.len() - 1 {
-                "└─"
-            } else {
-                "├─"
-            };
-            result.push_str(&format!(
-                "{} Dataset[{}] {} (alias: {:?})\n",
-                prefix, i, member.ds_name, member.alias
-            ));
-        }
-        result.push_str("\n");
-
-        if !self.values.is_empty() {
+        if !self.valsrels.is_empty() {
             for _ in 0..indent {
                 result.push_str("  ");
             }
-            result.push_str("├─ Values:\n");
-            for (i, rel_succ) in self.values.iter().enumerate() {
+            result.push_str("└─ Values:\n");
+            for (i, value) in self.valsrels.iter().enumerate() {
                 for _ in 0..(indent + 1) {
                     result.push_str("  ");
                 }
-                let prefix = if i == self.values.len() - 1 {
+                let prefix = if i == self.valsrels.len() - 1 {
                     "└─"
                 } else {
                     "├─"
                 };
-                let succ_values: Vec<String> =
-                    rel_succ.s.iter().map(|v| format!("{}", v)).collect();
-                result.push_str(&format!("{} [{}]\n", prefix, succ_values.join(", ")));
+                result.push_str(&format!("{} Value[{}]\n", prefix, i));
+                result.push_str(&value.format_tree(indent + 2));
             }
         }
-
-        if !self.predicate_list.is_empty() {
-            for _ in 0..indent {
-                result.push_str("  ");
-            }
-            result.push_str("└─ Predicates:\n");
-            for (i, predicate) in self.predicate_list.iter().enumerate() {
-                for _ in 0..(indent + 1) {
-                    result.push_str("  ");
-                }
-                let prefix = if i == self.predicate_list.len() - 1 {
-                    "└─"
-                } else {
-                    "├─"
-                };
-                result.push_str(&format!("{} Predicate[{}]\n", prefix, i));
-                result.push_str(&predicate.format_tree(indent + 2));
-            }
-        }
-
         result
     }
 }
@@ -511,27 +451,17 @@ impl TreeFormatter for UpdateStmt {
         }
         result.push_str(&format!("├─ Dataset Name: {:?}\n", self.ds_name));
 
-        if !self.values.is_empty() {
-            for _ in 0..indent {
+        for (i, action) in self.actions.iter().enumerate() {
+            for _ in 0..(indent + 1) {
                 result.push_str("  ");
             }
-            result.push_str("├─ Set Values:\n");
-            for (i, set_value) in self.values.iter().enumerate() {
-                for _ in 0..(indent + 1) {
-                    result.push_str("  ");
-                }
-                let prefix = if i == self.values.len() - 1 {
-                    "└─"
-                } else {
-                    "├─"
-                };
-                // join path segments name with dots
-                let path_str = set_value.fieldsegs.segments.join(".");
-                result.push_str(&format!(
-                    "{} Path: {} = Value: {}\n",
-                    prefix, path_str, set_value.value
-                ));
-            }
+            let prefix = if i == self.actions.len() - 1 {
+                "└─"
+            } else {
+                "├─"
+            };
+            result.push_str(&format!("{} Action[{}]\n", prefix, i));
+            result.push_str(&action.format_tree(indent + 2));
         }
 
         if !self.predicate_list.is_empty() {
@@ -556,55 +486,133 @@ impl TreeFormatter for UpdateStmt {
     }
 }
 
-impl TreeFormatter for YankStmt {
+impl TreeFormatter for UpdateAction {
+    fn format_tree(&self, indent: usize) -> String {
+        let mut result = String::new();
+
+        if !self.delelts.is_empty() {
+            for _ in 0..indent {
+                result.push_str("  ");
+            }
+            result.push_str("├─ del Fields:\n");
+            for (i, field) in self.delelts.iter().enumerate() {
+                for _ in 0..(indent + 1) {
+                    result.push_str("  ");
+                }
+                let prefix = if i == self.delelts.len() - 1 { "└─" } else { "├─" };
+                result.push_str(&format!("{} {}\n", prefix, field.segments.join(".")));
+            }
+        }
+
+        if !self.setvals.is_empty() {
+            for _ in 0..indent {
+                result.push_str("  ");
+            }
+            result.push_str("└─ Set Values:\n");
+            for (i, setval) in self.setvals.iter().enumerate() {
+                for _ in 0..(indent + 1) {
+                    result.push_str("  ");
+                }
+                let prefix = if i == self.setvals.len() - 1 { "└─" } else { "├─" };
+                result.push_str(&format!("{} SetValue[{}]\n", prefix, i));
+                result.push_str(&setval.format_tree(indent + 2));
+            }
+        }
+
+        result
+    }
+}
+
+impl TreeFormatter for SetValue {
     fn format_tree(&self, indent: usize) -> String {
         let mut result = String::new();
         for _ in 0..indent {
             result.push_str("  ");
         }
-        result.push_str(&format!("├─ Dataset Name: {:?}\n", self.ds_name));
-
-        if !self.fields.is_empty() {
-            for _ in 0..indent {
-                result.push_str("  ");
-            }
-            result.push_str("├─ Yanked Paths:\n");
-            for (i, yanked_path) in self.fields.iter().enumerate() {
-                for _ in 0..(indent + 1) {
-                    result.push_str("  ");
-                }
-                let prefix = if i == self.fields.len() - 1 {
-                    "└─"
-                } else {
-                    "├─"
-                };
-                // join path segments name with dots
-                let path_str = yanked_path.segments.join(".");
-                result.push_str(&format!("{} Path: {}\n", prefix, path_str));
-            }
+        result.push_str(&format!("├─ Field: {}\n", self.fieldsegs.segments.join(".")));
+        for _ in 0..indent {
+            result.push_str("  ");
         }
+        result.push_str(&format!("└─ Value: {}\n", self.value));
+        result
+    }
+}
 
-        if !self.predicate_list.is_empty() {
+impl TreeFormatter for ValRels {
+    fn format_tree(&self, indent: usize) -> String {
+        let mut result = String::new();
+        for _ in 0..indent {
+            result.push_str("  ");
+        }
+        result.push_str(&format!("├─ Value: {}\n", self.val));
+        if !self.rels.is_empty() {
             for _ in 0..indent {
                 result.push_str("  ");
             }
-            result.push_str("└─ Predicates:\n");
-            for (i, predicate) in self.predicate_list.iter().enumerate() {
+            result.push_str("└─ Relationships:\n");
+            for (i, rel) in self.rels.iter().enumerate() {
                 for _ in 0..(indent + 1) {
                     result.push_str("  ");
                 }
-                let prefix = if i == self.predicate_list.len() - 1 {
+                let prefix = if i == self.rels.len() - 1 {
                     "└─"
                 } else {
                     "├─"
                 };
-                result.push_str(&format!("{} Predicate[{}]\n", prefix, i));
-                result.push_str(&predicate.format_tree(indent + 2));
+                result.push_str(&format!("{} Relation[{}]\n", prefix, i));
+                result.push_str(&rel.format_tree(indent + 2));
             }
         }
         result
     }
 }
+
+impl TreeFormatter for RelUpdate {
+    fn format_tree(&self, indent: usize) -> String {
+        let mut result = String::new();
+        for _ in 0..indent {
+            result.push_str("  ");
+        }
+        result.push_str(&format!("├─ Relationship: {}\n", self.name));
+        if !self.elts.is_empty() {
+            for _ in 0..indent {
+                result.push_str("  ");
+            }
+            result.push_str("└─ Elements:\n");
+            for (i, elt) in self.elts.iter().enumerate() {
+                for _ in 0..(indent + 1) {
+                    result.push_str("  ");
+                }
+                let prefix = if i == self.elts.len() - 1 {
+                    "└─"
+                } else {
+                    "├─"
+                };
+                result.push_str(&format!("{} Element[{}]\n", prefix, i));
+                result.push_str(&elt.format_tree(indent + 2));
+            }
+        }
+        result
+    }
+}
+
+impl TreeFormatter for RelElt {
+    fn format_tree(&self, indent: usize) -> String {
+        let mut result = String::new();
+        for _ in 0..indent {
+            result.push_str("  ");
+        }
+        let values = self
+            .segs
+            .iter()
+            .map(|value| value.to_string())
+            .collect::<Vec<_>>()
+            .join(", ");
+        result.push_str(&format!("└─ Values: [{}]\n", values));
+        result
+    }
+}
+
 impl TreeFormatter for SelectStmt {
     fn format_tree(&self, indent: usize) -> String {
         let mut result = String::new();

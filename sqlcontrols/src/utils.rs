@@ -13,17 +13,21 @@
 // limitations under the License.
 
 use rust_decimal::Decimal;
-use sqlexet::{SqlExeTrait, MIN_USER_DATASET_ID, MTS_OBJNOTFOUND, STS_SUCCESS};
-use sqlinsts::{
-    sql_value_pb::Data, CompOperatorPb, DecimalValuePb, EvalPhasePb, RelOpPb, SqlValuePb,
+use sqlexet::{MtOidT, SqlExeTrait, MIN_USER_DATASET_ID, MTS_OBJNOTFOUND, STS_SUCCESS};
+use sqlinsts::sqlinsts::ValRelsUpdPb;
+use sqlinsts::sqlinsts::{
+    sql_value_pb, sql_value_pb::Data, CompOperatorPb, DecimalValuePb, EvalPhasePb, OperPb,
+    SqlValuePb, UpdateOpPb,
 };
+use std::cell::RefCell;
 use std::cmp::Ordering;
 use std::ffi::c_uint;
 use tracing::debug;
 
 use relpart::SqlRelAccessError;
-use sqloptimize::utils::SqlTranslateError;
-use sqlparser::SqlParseError;
+use sqloptimize::utils::SqlAnalyzeError;
+use sqlparse::SqlParseError;
+use sqlplan::utils::SqlTranslateError;
 use thiserror::Error;
 
 // i64 max as i128
@@ -35,6 +39,8 @@ pub enum SqlExecError {
     ParseError(#[from] SqlParseError),
     #[error("SQL Translate Error: {0}")]
     TranslateError(#[from] SqlTranslateError),
+    #[error("SQL Analyze Error: {0}")]
+    AnalyzeError(#[from] SqlAnalyzeError),
     #[error("Execution Error: {0}")]
     ExecutionError(String),
     #[error("RelAccess Error: {0}")]
@@ -72,12 +78,12 @@ fn adjust_decimal_scale(d: &Decimal) -> Option<Decimal> {
     Some(adjusted)
 }
 
-fn evaluate_decimal_expr(d1: &Decimal, d2: &Decimal, op: sqlinsts::OperPb) -> Option<Decimal> {
+fn evaluate_decimal_expr(d1: &Decimal, d2: &Decimal, op: OperPb) -> Option<Decimal> {
     let result = match op {
-        sqlinsts::OperPb::Add => *d1 + *d2,
-        sqlinsts::OperPb::Sub => *d1 - *d2,
-        sqlinsts::OperPb::Mul => *d1 * *d2,
-        sqlinsts::OperPb::Div => {
+        OperPb::Add => *d1 + *d2,
+        OperPb::Sub => *d1 - *d2,
+        OperPb::Mul => *d1 * *d2,
+        OperPb::Div => {
             if d2.is_zero() {
                 return None;
             }
@@ -96,29 +102,29 @@ fn evaluate_decimal_expr(d1: &Decimal, d2: &Decimal, op: sqlinsts::OperPb) -> Op
     adjust_decimal_scale(&result)
 }
 
-pub fn evaluate_expr(left_val: &SqlValuePb, right_val: &SqlValuePb, op: sqlinsts::OperPb) -> Data {
+pub fn evaluate_expr(left_val: &SqlValuePb, right_val: &SqlValuePb, op: OperPb) -> Data {
     match left_val.data.as_ref() {
         Some(Data::Int64Value(i1)) => match right_val.data.as_ref() {
             Some(Data::Int64Value(i2)) => match op {
-                sqlinsts::OperPb::Add => {
+                OperPb::Add => {
                     if i1.checked_add(*i2).is_none() {
                         return Data::NullValue(true);
                     }
                     Data::Int64Value(i1 + i2)
                 }
-                sqlinsts::OperPb::Sub => {
+                OperPb::Sub => {
                     if i1.checked_sub(*i2).is_none() {
                         return Data::NullValue(true);
                     }
                     Data::Int64Value(i1 - i2)
                 }
-                sqlinsts::OperPb::Mul => {
+                OperPb::Mul => {
                     if i1.checked_mul(*i2).is_none() {
                         return Data::NullValue(true);
                     }
                     Data::Int64Value(i1 * i2)
                 }
-                sqlinsts::OperPb::Div => {
+                OperPb::Div => {
                     if i1.checked_div(*i2).is_none() {
                         return Data::NullValue(true);
                     }
@@ -183,7 +189,7 @@ pub fn evaluate_expr(left_val: &SqlValuePb, right_val: &SqlValuePb, op: sqlinsts
         }
         Some(Data::StringValue(s1)) => match right_val.data.as_ref() {
             Some(Data::StringValue(s2)) => match op {
-                sqlinsts::OperPb::Add => Data::StringValue(format!("{}{}", s1, s2)),
+                OperPb::Add => Data::StringValue(format!("{}{}", s1, s2)),
                 _ => {
                     debug!("Unsupported operator {:?} for StringValue", op);
                     Data::NullValue(true)
@@ -191,7 +197,7 @@ pub fn evaluate_expr(left_val: &SqlValuePb, right_val: &SqlValuePb, op: sqlinsts
             },
             Some(Data::Int64Value(_)) | Some(Data::DecimalValue(_)) => {
                 match op {
-                    sqlinsts::OperPb::Add => {
+                    OperPb::Add => {
                         // Convert int or decimal to string
                         let s2 = match right_val.data.as_ref() {
                             Some(Data::Int64Value(i2)) => i2.to_string(),
@@ -431,7 +437,7 @@ pub fn populate_rel_pkvals_for_succs(
 // Add or delete rel successors for the primary item rels
 pub fn update_rels(
     ctxt: &mut impl SqlExeTrait,
-    upd_type: RelOpPb,
+    upd_op: UpdateOpPb,
     inverse: bool,
     rel_id: u32,
     curr_id: u32,
@@ -451,7 +457,7 @@ pub fn update_rels(
     );
     debug!(
         "update_rels - get datapart for upd {:?} relid {}, target id {}, succs to update {:?} inverse: {} size: {}",
-         upd_type, rel_id, curr_id, succs, inverse, data_size
+         upd_op, rel_id, curr_id, succs, inverse, data_size
     );
     if sts != STS_SUCCESS {
         return Err(SqlExecError::ExecutionError(format!(
@@ -459,20 +465,26 @@ pub fn update_rels(
             sts
         )));
     }
-    match upd_type {
-        RelOpPb::Insert => {
+    match upd_op {
+        UpdateOpPb::Insert => {
             if let Err(e) = relpart::add_rel_successors(ctxt, rel_id, inverse, curr_id, succs) {
                 return Err(SqlExecError::ExecutionError(e.to_string()));
             } else if !inverse {
-                ctxt.increment_count(sqlexet::UpdCounter::AddSucc(succs.len() as i32));
+                ctxt.increment_count(sqlexet::UpdCounter::AddElt(succs.len() as i32));
             }
         }
-        RelOpPb::Delete => {
+        UpdateOpPb::Delete => {
             if let Err(e) = relpart::rm_rel_successors(ctxt, rel_id, inverse, curr_id, succs) {
                 return Err(SqlExecError::ExecutionError(e.to_string()));
             } else if !inverse {
-                ctxt.increment_count(sqlexet::UpdCounter::RmSucc(succs.len() as i32));
+                ctxt.increment_count(sqlexet::UpdCounter::RmElt(succs.len() as i32));
             }
+        }
+        _ => {
+            return Err(SqlExecError::ExecutionError(format!(
+                "Unsupported update operation: {:?}",
+                upd_op
+            )));
         }
     }
     Ok("".to_string())
@@ -597,7 +609,7 @@ pub fn get_sqlval_for_path(
     Ok(sqlval)
 }
 
-pub fn pretty_print_dsdesc(ds_desc: &jbparse::DatasetDesc) -> String {
+pub fn describe_ds(ds_desc: &jbparse::DatasetDesc) -> String {
     let mut result = format!("CREATE DATASET {}", ds_desc.name);
     let mut defs: Vec<String> = Vec::new();
 
@@ -627,8 +639,7 @@ pub fn pretty_print_dsdesc(ds_desc: &jbparse::DatasetDesc) -> String {
     for rel in &ds_desc.rels {
         defs.push(format!(
             "    RELATIONSHIP {}({})",
-            rel.name,
-            rel.tgt_dataset
+            rel.name, rel.tgt_dataset
         ));
     }
 
@@ -638,7 +649,44 @@ pub fn pretty_print_dsdesc(ds_desc: &jbparse::DatasetDesc) -> String {
     }
 
     result.push('\n');
-    result.push_str(&defs.join(",\n"));
+    result.push_str(&defs.join("\n"));
     result.push_str(";\n");
     result
+}
+
+pub fn insert_value(
+    ctxt: &mut impl SqlExeTrait,
+    valrels: &ValRelsUpdPb,
+    values: &Vec<RefCell<SqlValuePb>>,
+    ds_id: MtOidT,
+) -> Result<MtOidT, SqlExecError> {
+    let valborrow = values[valrels.val_idx as usize].borrow();
+    let value = valborrow.data.as_ref().unwrap();
+    debug!("Inserting value {:?}: {:?}", valrels.val_idx, value);
+    let val_str = match value {
+        sql_value_pb::Data::StringValue(s) => s.as_str(),
+        _ => "",
+    };
+    let res = jbparse::jsonstr_to_jsonb(val_str);
+    if let Err(e) = res {
+        return Err(SqlExecError::ExecutionError(format!("{}", e)));
+    }
+    let data_binary = res.unwrap();
+    let data_size: c_uint = data_binary.len() as c_uint;
+    let mut obj_key: MtOidT = 0;
+    let sts = ctxt.create_item(
+        ctxt.get_tranid(),
+        ds_id,
+        &mut obj_key,
+        &data_binary,
+        data_size,
+    );
+    if sts != STS_SUCCESS {
+        // If any error create_item does abort the transaction
+        return Err(SqlExecError::ExecutionError(format!(
+            "Failed to insert value {} into dataset '{:?}', sts=0x{:x}",
+            val_str, ds_id, sts
+        )));
+    }
+    return Ok(obj_key);
 }

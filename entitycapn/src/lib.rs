@@ -12,4 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub mod entity_capnp;
+pub mod entity_capnp {
+    include!(concat!(env!("OUT_DIR"), "/entity_capnp.rs"));
+}

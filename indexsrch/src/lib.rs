@@ -14,7 +14,7 @@
 
 use indexcapn::indexkey_capnp::{dup_index_key, index_page, key_component, uniq_index_key};
 use rust_decimal::Decimal;
-use sqlinsts::{sql_value_pb::Data, CompOperatorPb, SqlValuePb};
+use sqlinsts::sqlinsts::{sql_value_pb::Data, CompOperatorPb, SqlValuePb};
 use std::cell::RefCell;
 use std::cmp::Ordering;
 

@@ -23,7 +23,7 @@ publish = false
 path = "src/lib.rs"
 
 [dependencies]
-prost = "0.12"
+prost = "0.13"
 bytes = "1.5"
 jsonb = "0.5.5"
 serde_json = "1.0"
@@ -34,3 +34,12 @@ sqlexet = { version = "0.1.0", path = "../sqlexet" }
 sqlplan = { version = "0.1.0", path = "../sqlplan" }
 rust_decimal = "1.41.0"
 regex = "1.13.1"
+sqlinsts = { version = "0.1.0", path = "../sqlinsts" }
+indexsrch = { version = "0.1.0", path = "../indexsrch" }
+dupindexkey = { version = "0.1.0", path = "../dupindexkey" }
+indexcapn = { version = "0.1.0", path = "../indexcapn" }
+indexbt = { version = "0.1.0", path = "../indexbt" }
+relpart = { version = "0.1.0", path = "../relpart" }
+sqlparse = { version = "0.1.0", path = "../sqlparse" }
+jbparse = { version = "0.1.0", path = "../jbparse" }
+sqloptimize = { version = "0.1.0", path = "../sqloptimize" }

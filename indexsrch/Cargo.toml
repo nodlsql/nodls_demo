@@ -26,5 +26,7 @@ path = "src/lib.rs"
 capnp = "0.27"
 sqlinsts = { version = "0.1.0", path = "../sqlinsts" }
 indexkey = { version = "0.1.0", path = "../indexkey" }
+dupindexkey = { version = "0.1.0", path = "../dupindexkey" }
 tracing = "0.1.44"
 rust_decimal = { version = "1.41.0", features = ["macros"] }
+indexcapn = { version = "0.1.0", path = "../indexcapn" }

@@ -19,8 +19,8 @@ use sqlcontrols::utils;
 use sqlexet::SqlExeTrait;
 use std::{ffi::c_uint, i64};
 
-use sqlinsts::{sql_value_pb::Data, CompOperatorPb, SqlValuePb};
-use sqloptimize::utils::pretty_print_plan;
+use sqlinsts::sqlinsts::{sql_value_pb, CompOperatorPb, DecimalValuePb, OperPb, SqlValuePb};
+use sqlplan::utils::pretty_print_plan;
 
 #[test]
 fn test_translate_sql_stmt() {
@@ -41,8 +41,8 @@ fn test_translate_sql_stmt() {
 
     // Generate AST from SQL statement
     let input = "select vibe from job where vibe.mood='good'";
-    let res = sqlparser::parse_stmt(input).unwrap();
-    if let sqlparser::ast::SqlStmt::Select(_) = res {
+    let res = sqlparse::parse_stmt(input).unwrap();
+    if let sqlparse::ast::SqlStmt::Select(_) = res {
         // expected
         println!("Parsed AST: {}", res.print_tree());
     } else {
@@ -70,15 +70,15 @@ fn test_translate_sql_stmt() {
 #[test]
 fn test_compare_values() {
     let val1 = SqlValuePb {
-        data: Some(Data::Int64Value(10)),
+        data: Some(sql_value_pb::Data::Int64Value(10)),
         is_constant: true,
     };
     let val2 = SqlValuePb {
-        data: Some(Data::Int64Value(20)),
+        data: Some(sql_value_pb::Data::Int64Value(20)),
         is_constant: true,
     };
     let val3 = SqlValuePb {
-        data: Some(Data::Int64Value(10)),
+        data: Some(sql_value_pb::Data::Int64Value(10)),
         is_constant: true,
     };
     let val_none = SqlValuePb {
@@ -86,7 +86,7 @@ fn test_compare_values() {
         is_constant: true,
     };
     let val_null = SqlValuePb {
-        data: Some(Data::NullValue(true)),
+        data: Some(sql_value_pb::Data::NullValue(true)),
         is_constant: true,
     };
 
@@ -147,39 +147,39 @@ fn test_decimal_ops() {
         (
             Decimal::new(12345, 2),
             Decimal::new(67890, 3),
-            sqlinsts::OperPb::Add,
+            OperPb::Add,
             Decimal::new(191340, 3),
         ), // 123.45 and 67.890
         (
             Decimal::new(-12345, 2),
             Decimal::new(67890, 3),
-            sqlinsts::OperPb::Add,
+            OperPb::Add,
             Decimal::new(-55560, 3),
         ), // negative and positive decimal
         (
             Decimal::new(-12345, 2),
             Decimal::new(67890, 3),
-            sqlinsts::OperPb::Div,
+            OperPb::Div,
             Decimal::new(-1818382677861246133, 18),
         ), // division result -1.818382677861246133
     ];
     for (d1, d2, op, expected) in test_cases {
         let val1 = SqlValuePb {
-            data: Some(Data::DecimalValue(sqlinsts::DecimalValuePb {
+            data: Some(sql_value_pb::Data::DecimalValue(DecimalValuePb {
                 number: d1.mantissa() as i64,
                 scale: d1.scale() as u32,
             })),
             is_constant: true,
         };
         let val2 = SqlValuePb {
-            data: Some(Data::DecimalValue(sqlinsts::DecimalValuePb {
+            data: Some(sql_value_pb::Data::DecimalValue(DecimalValuePb {
                 number: d2.mantissa() as i64,
                 scale: d2.scale() as u32,
             })),
             is_constant: true,
         };
         let result = utils::evaluate_expr(&val1, &val2, op);
-        if let Data::DecimalValue(res) = result {
+        if let sql_value_pb::Data::DecimalValue(res) = result {
             println!(
                 "Result for {:?} {:?} {:?}: number: {}, scale: {}",
                 d1, d2, op, res.number, res.scale
@@ -202,34 +202,34 @@ fn test_decimal_ops() {
 #[test]
 fn test_overflow_ops() {
     let val1 = SqlValuePb {
-        data: Some(Data::Int64Value(i64::MAX)),
+        data: Some(sql_value_pb::Data::Int64Value(i64::MAX)),
         is_constant: true,
     };
     let val2 = SqlValuePb {
-        data: Some(Data::Int64Value(1)),
+        data: Some(sql_value_pb::Data::Int64Value(1)),
         is_constant: true,
     };
-    let result = utils::evaluate_expr(&val1, &val2, sqlinsts::OperPb::Add);
-    if let Data::NullValue(_) = result {
+    let result = utils::evaluate_expr(&val1, &val2, OperPb::Add);
+    if let sql_value_pb::Data::NullValue(_) = result {
         // Expected a NullValue result for overflow add
     } else {
         panic!("Expected a NullValue result for overflow add");
     }
     let val2 = SqlValuePb {
-        data: Some(Data::DecimalValue(sqlinsts::DecimalValuePb {
+        data: Some(sql_value_pb::Data::DecimalValue(DecimalValuePb {
             number: i64::MAX,
             scale: 0,
         })),
         is_constant: true,
     };
-    let result = utils::evaluate_expr(&val1, &val2, sqlinsts::OperPb::Add);
-    if let Data::NullValue(_) = result {
+    let result = utils::evaluate_expr(&val1, &val2, OperPb::Add);
+    if let sql_value_pb::Data::NullValue(_) = result {
         // Expected a NullValue result for overflow add
     } else {
         panic!("Expected a NullValue result for overflow add");
     }
-    let result = utils::evaluate_expr(&val2, &val1, sqlinsts::OperPb::Add);
-    if let Data::NullValue(_) = result {
+    let result = utils::evaluate_expr(&val2, &val1, OperPb::Add);
+    if let sql_value_pb::Data::NullValue(_) = result {
         // Expected a NullValue result for overflow add
     } else {
         panic!("Expected a NullValue result for overflow add");
@@ -238,18 +238,53 @@ fn test_overflow_ops() {
 
 #[test]
 fn test_string_concat() {
-    use sqlinsts::sql_value_pb::Data;
-    use sqlinsts::SqlValuePb;
-
     let test_data = vec![
-       (Data::StringValue("Hello".to_string()), Data::StringValue(" world!".to_string()), "Hello world!".to_string()),
-        (Data::StringValue("Hello".to_string()), Data::Int64Value(123), "Hello123".to_string()),
-        (Data::StringValue("Hello".to_string()), Data::DecimalValue(sqlinsts::DecimalValuePb { number: 12345, scale: 2 }), "Hello123.45".to_string()),
-        (Data::Int64Value(123), Data::StringValue(" world!".to_string()), "123 world!".to_string()),
-        (Data::DecimalValue(sqlinsts::DecimalValuePb { number: 12345, scale: 2 }), Data::StringValue(" world!".to_string()), "123.45 world!".to_string()),
-       (Data::StringValue("Hello ".to_string()), Data::BoolValue(true), "Hello true".to_string()),
-       (Data::StringValue("Hello ".to_string()), Data::BoolValue(false), "Hello false".to_string()),
-       (Data::StringValue("Hello ".to_string()), Data::NullValue(true), "Hello null".to_string()),
+        (
+            sql_value_pb::Data::StringValue("Hello".to_string()),
+            sql_value_pb::Data::StringValue(" world!".to_string()),
+            "Hello world!".to_string(),
+        ),
+        (
+            sql_value_pb::Data::StringValue("Hello".to_string()),
+            sql_value_pb::Data::Int64Value(123),
+            "Hello123".to_string(),
+        ),
+        (
+            sql_value_pb::Data::StringValue("Hello".to_string()),
+            sql_value_pb::Data::DecimalValue(DecimalValuePb {
+                number: 12345,
+                scale: 2,
+            }),
+            "Hello123.45".to_string(),
+        ),
+        (
+            sql_value_pb::Data::Int64Value(123),
+            sql_value_pb::Data::StringValue(" world!".to_string()),
+            "123 world!".to_string(),
+        ),
+        (
+            sql_value_pb::Data::DecimalValue(DecimalValuePb {
+                number: 12345,
+                scale: 2,
+            }),
+            sql_value_pb::Data::StringValue(" world!".to_string()),
+            "123.45 world!".to_string(),
+        ),
+        (
+            sql_value_pb::Data::StringValue("Hello ".to_string()),
+            sql_value_pb::Data::BoolValue(true),
+            "Hello true".to_string(),
+        ),
+        (
+            sql_value_pb::Data::StringValue("Hello ".to_string()),
+            sql_value_pb::Data::BoolValue(false),
+            "Hello false".to_string(),
+        ),
+        (
+            sql_value_pb::Data::StringValue("Hello ".to_string()),
+            sql_value_pb::Data::NullValue(true),
+            "Hello null".to_string(),
+        ),
     ];
 
     for (d1, d2, expected) in test_data {
@@ -261,11 +296,14 @@ fn test_string_concat() {
             data: Some(d2),
             is_constant: true,
         };
-        let result = utils::evaluate_expr(&val1, &val2, sqlinsts::OperPb::Add);
-        if let Data::StringValue(s) = result {
+        let result = utils::evaluate_expr(&val1, &val2, OperPb::Add);
+        if let sql_value_pb::Data::StringValue(s) = result {
             assert_eq!(s, expected, "Unexpected string concatenation result");
         } else {
-            panic!("Expected a StringValue for: {:?} + {:?} got: {:?}", val1.data, val2.data, result);
+            panic!(
+                "Expected a StringValue for: {:?} + {:?} got: {:?}",
+                val1.data, val2.data, result
+            );
         }
     }
 }

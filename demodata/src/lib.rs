@@ -12,4 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub mod tstdata;
+pub mod tstdata {
+    include!(concat!(env!("OUT_DIR"), "/tstdata.rs"));
+}
