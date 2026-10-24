@@ -32,6 +32,27 @@ pub enum SqlRelAccessError {
     RelWriteFailed(String),
 }
 
+#[macro_export]
+macro_rules! get_index_page_reader {
+    ($serialized_page:expr, $ms: literal) => {
+        // Deserialize the existing index_page
+        match ::capnp::serialize::read_message(
+            &mut std::io::Cursor::new($serialized_page),
+            ::capnp::message::ReaderOptions::new(),
+        ) {
+            Ok(reader) => reader,
+            Err(e) => {
+                return Err(SqlRelAccessError::RelReaderFailed(format!(
+                    "{} failed: {}",
+                    $ms.to_string(),
+                    e
+                )));
+            }
+        }
+    };
+}
+
+#[macro_export]
 macro_rules! capn_access_check {
     // Match two arguments: an identifier ($i:ident) and an expression ($e:expr)
     ($ex: expr, $ms: literal) => {
@@ -123,7 +144,7 @@ pub fn rm_rel_elts(
         &mut data_size,
     );
     if sts != STS_SUCCESS {
-        println!(
+        debug!(
             "Rel part not found for rel_part_id: {}, inverse: {}",
             rel_part_id, inverse
         );
@@ -164,13 +185,7 @@ pub fn insert_rel_elts(
     rel_id: MtOidT,
     oid_keys: &Vec<MtOidT>,
 ) -> Result<u32, SqlRelAccessError> {
-    let message_reader = capn_access_check!(
-        ::capnp::serialize::read_message(
-            &mut std::io::Cursor::new(rel_buffer.as_slice()),
-            ::capnp::message::ReaderOptions::new(),
-        ),
-        "read message"
-    );
+    let message_reader = get_index_page_reader!(rel_buffer.as_slice(), "read message");
     let root = capn_access_check!(message_reader.get_root::<rel_part::Reader>(), "get root");
     let rels = capn_access_check!(root.get_rels(), "get rels");
 
@@ -279,16 +294,10 @@ pub fn remove_rel_elts(
     debug!(
         "remove_rel_elts before image - rel_id: {} relPart: {:?}",
         rel_id,
-        display_relpart(rel_buffer)
+        display_relpart(rel_buffer).unwrap_or_else(|_| "failed to display relpart".to_string())
     );
     // Remove elements for a given rel_id
-    let message_reader = capn_access_check!(
-        ::capnp::serialize::read_message(
-            &mut std::io::Cursor::new(rel_buffer.as_slice()),
-            ::capnp::message::ReaderOptions::new()
-        ),
-        "read message"
-    );
+    let message_reader = get_index_page_reader!(rel_buffer.as_slice(), "read message");
     let rel_part_reader = capn_access_check!(
         message_reader.get_root::<rel_part::Reader>(),
         "get rel_part reader"
@@ -347,9 +356,7 @@ pub fn remove_rel_elts(
         }
     }
     if rel_found == false {
-        return Err(SqlRelAccessError::RelNotFound(
-            "".to_string(),
-        ));
+        return Err(SqlRelAccessError::RelNotFound("".to_string()));
     }
     if del_count != oid_keys.len() as u32 {
         return Err(SqlRelAccessError::RelUpdateFailed(
@@ -392,19 +399,17 @@ pub fn remove_rel_elts(
     debug!(
         "remove_rel_succs after image - rel_id: {} relPart: {:?}",
         rel_id,
-        display_relpart(rel_buffer)
+        display_relpart(rel_buffer).unwrap_or_else(|_| "failed to display relpart".to_string())
     );
     Ok(del_count)
 }
 
 // Get all the rels as an array of (rid, [succs]) tuples for testing
-pub fn get_rels(rel_buffer: &[u8]) -> ::capnp::Result<Vec<(MtOidT, Vec<MtOidT>)>> {
-    let message_reader = ::capnp::serialize::read_message(
-        &mut std::io::Cursor::new(rel_buffer),
-        ::capnp::message::ReaderOptions::new(),
-    )?;
-    let rel_part_reader = message_reader.get_root::<rel_part::Reader>()?;
-    let rels = rel_part_reader.get_rels()?;
+pub fn get_rels(rel_buffer: &[u8]) -> Result<Vec<(MtOidT, Vec<MtOidT>)>, SqlRelAccessError> {
+    let message_reader = get_index_page_reader!(rel_buffer, "read message");
+    let rel_part_reader =
+        capn_access_check!(message_reader.get_root::<rel_part::Reader>(), "get root");
+    let rels = capn_access_check!(rel_part_reader.get_rels(), "get rels");
     let mut result = vec![];
     for i in 0..rels.len() {
         let r = rels.get(i);
@@ -420,18 +425,16 @@ pub fn get_rels(rel_buffer: &[u8]) -> ::capnp::Result<Vec<(MtOidT, Vec<MtOidT>)>
     Ok(result)
 }
 
-pub fn get_rel_elts(rel_buffer: &[u8], rel_id: MtOidT) -> ::capnp::Result<Vec<MtOidT>> {
-    let message_reader = ::capnp::serialize::read_message(
-        &mut std::io::Cursor::new(rel_buffer),
-        ::capnp::message::ReaderOptions::new(),
-    )?;
+pub fn get_rel_elts(rel_buffer: &[u8], rel_id: MtOidT) -> Result<Vec<MtOidT>, SqlRelAccessError> {
+    let message_reader = get_index_page_reader!(rel_buffer, "read message");
     debug!(
         "get_rel_elts - rel_id: {} relPart: {:?}",
         rel_id,
-        display_relpart(rel_buffer)
+        display_relpart(rel_buffer).unwrap_or_else(|_| "failed to display relpart".to_string())
     );
-    let rel_part_reader = message_reader.get_root::<rel_part::Reader>()?;
-    let rels = rel_part_reader.get_rels()?;
+    let rel_part_reader =
+        capn_access_check!(message_reader.get_root::<rel_part::Reader>(), "get root");
+    let rels = capn_access_check!(rel_part_reader.get_rels(), "get rels");
     for i in 0..rels.len() {
         let r = rels.get(i);
         if r.get_rid() == rel_id {
@@ -447,14 +450,9 @@ pub fn get_rel_elts(rel_buffer: &[u8], rel_id: MtOidT) -> ::capnp::Result<Vec<Mt
     Ok(vec![]) // Return empty if no matching rel or no elements
 }
 
-pub fn display_relpart(rel_buffer: &[u8]) -> String {
-    let message_reader = ::capnp::serialize::read_message(
-        &mut std::io::Cursor::new(rel_buffer),
-        ::capnp::message::ReaderOptions::new(),
-    )
-    .expect("failed to init message reader");
-    let rel_part_reader = message_reader
-        .get_root::<rel_part::Reader>()
-        .expect("failed to read relpart");
-    format!("{:?}", rel_part_reader)
+pub fn display_relpart(rel_buffer: &[u8]) -> Result<String, SqlRelAccessError> {
+    let message_reader = get_index_page_reader!(rel_buffer, "read message");
+    let rel_part_reader =
+        capn_access_check!(message_reader.get_root::<rel_part::Reader>(), "get root");
+    Ok(format!("{:?}", rel_part_reader))
 }

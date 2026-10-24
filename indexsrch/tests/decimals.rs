@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use indexcapn::indexkey_capnp::index_page;
+use indexkey::IndexKeyType;
 use indexsrch::{compare_keys, index_binary_search, SearchRes};
 use rust_decimal::Decimal;
 use sqlinsts::sqlinsts::{sql_value_pb::Data, DecimalValuePb, SqlValuePb};
@@ -21,8 +22,8 @@ use std::cmp::Ordering;
 macro_rules! get_index_page_reader {
     ($serialized_page:ident) => {
         // Deserialize the existing index_page
-        if let Ok(reader) = ::capnp::serialize::read_message(
-            &mut std::io::Cursor::new($serialized_page),
+        if let Ok(reader) = ::capnp::serialize::read_message_from_flat_slice_no_alloc(
+            &mut $serialized_page.as_ref(),
             ::capnp::message::ReaderOptions::new(),
         ) {
             reader
@@ -59,7 +60,7 @@ fn test_compare_decimal_key() {
         let sql_cmp_vals = vec![sql_val];
         let idx_sql_vals = vec![idx_sql_val];
         // Create a new index_page Leaf message
-        let init_buffer = indexkey::create_page(true);
+        let init_buffer = indexkey::create_page(IndexKeyType::Unique);
         let serialized_page =
             indexkey::insert_key_from_values(&init_buffer, 1, &idx_sql_vals, 0, false).unwrap();
 
@@ -79,7 +80,7 @@ fn test_compare_decimal_key() {
 #[test]
 fn test_index_binary_search() {
     // Create a new index_page Leaf message
-    let mut serialized_page = indexkey::create_page(true);
+    let mut serialized_page = indexkey::create_page(IndexKeyType::Unique);
 
     // Add index entries for the test cases
     let idx_values = vec![

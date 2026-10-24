@@ -26,6 +26,7 @@ rust_library(
     name = "lib",
     srcs = [
         "src/lib.rs",
+        "src/btnode.rs",
     ],
     aliases = aliases(),
     crate_name = "indexbt",
@@ -37,6 +38,7 @@ rust_library(
         "//indexkey:lib",
         "//indexsrch:lib",
         "//jbparse:lib",
+        "//slistkey:lib",
         "//sqlexet:lib",
         "//sqlinsts:lib",
     ] + all_crate_deps(
@@ -55,6 +57,7 @@ rust_test(
         "//indexkey:lib",
         "//indexsrch:lib",
         "//jbparse:lib",
+        "//slistkey:lib",
         "//sqlinsts:lib",
     ] + all_crate_deps(
         normal = True,
@@ -73,6 +76,26 @@ rust_test(
         "//indexkey:lib",
         "//indexsrch:lib",
         "//jbparse:lib",
+        "//slistkey:lib",
+        "//sqlinsts:lib",
+    ] + all_crate_deps(
+        normal = True,
+        proc_macro = True,
+    ),
+)
+
+rust_test(
+    name = "btsplit",
+    srcs = ["tests/btsplit.rs"],
+    crate_root = "tests/btsplit.rs",
+    deps = [
+        ":lib",
+        "//dupindexkey:lib",
+        "//indexcapn:lib",
+        "//indexkey:lib",
+        "//indexsrch:lib",
+        "//jbparse:lib",
+        "//slistkey:lib",
         "//sqlinsts:lib",
     ] + all_crate_deps(
         normal = True,
@@ -91,6 +114,7 @@ rust_test(
         "//indexkey:lib",
         "//indexsrch:lib",
         "//jbparse:lib",
+        "//slistkey:lib",
         "//sqlinsts:lib",
     ] + all_crate_deps(
         normal = True,

@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use indexcapn::indexkey_capnp::{index_page, key_component};
+use indexkey::IndexKeyType;
 use indexsrch::{compare_keys, ScanOutput, SearchRes};
 use rust_decimal::Decimal;
 use sqlinsts::sqlinsts::{sql_value_pb::Data, CompOperatorPb, DecimalValuePb, SqlValuePb};
@@ -21,8 +22,8 @@ use std::cmp::Ordering;
 macro_rules! get_index_page_reader {
     ($serialized_page:ident) => {
         // Deserialize the existing index_page
-        if let Ok(reader) = ::capnp::serialize::read_message(
-            &mut std::io::Cursor::new($serialized_page),
+        if let Ok(reader) = ::capnp::serialize::read_message_from_flat_slice_no_alloc(
+            &mut $serialized_page.as_ref(),
             ::capnp::message::ReaderOptions::new(),
         ) {
             reader
@@ -51,7 +52,7 @@ fn test_compare_str_key() {
         };
 
         // Create a new index_page Leaf message
-        let serialized_page = indexkey::create_page(true);
+        let serialized_page = indexkey::create_page(IndexKeyType::Unique);
         let serialized_page = match indexkey::insert_key_from_values(
             &serialized_page,
             1,
@@ -103,7 +104,7 @@ fn test_compare_decimal_key() {
         let sql_cmp_vals = vec![sql_val];
         let idx_sql_vals = vec![idx_sql_val];
         // Create a new index_page Leaf message
-        let serialized_page = indexkey::create_page(true);
+        let serialized_page = indexkey::create_page(IndexKeyType::Unique);
         let serialized_page =
             indexkey::insert_key_from_values(&serialized_page, 1, &idx_sql_vals, 0, false).unwrap();
 
@@ -143,7 +144,7 @@ fn test_compare_compound_key() {
         let sql_cmp_vals = vec![sql_head.clone(), sql_val];
         let idx_sql_vals = vec![sql_head, idx_sql_val];
         // Create a new index_page Leaf message
-        let serialized_page = indexkey::create_page(true);
+        let serialized_page = indexkey::create_page(IndexKeyType::Unique);
         let serialized_page =
             indexkey::insert_key_from_values(&serialized_page, 1, &idx_sql_vals, 0, false).unwrap();
 
@@ -216,7 +217,7 @@ fn test_compare_null_key() {
             .collect::<Vec<_>>();
 
         // Create a new index_page Leaf message
-        let serialized_page = indexkey::create_page(true);
+        let serialized_page = indexkey::create_page(IndexKeyType::Unique);
 
         let serialized_page =
             indexkey::insert_key_from_values(&serialized_page, 1, &idx_sql_vals, 0, false).unwrap();
@@ -264,26 +265,22 @@ fn test_compare_mismatched_key() {
         let sql_vals = val0
             .clone()
             .into_iter()
-            .map(|d| {
-                SqlValuePb {
-                    data: Some(d),
-                    ..Default::default()
-                }
+            .map(|d| SqlValuePb {
+                data: Some(d),
+                ..Default::default()
             })
             .collect::<Vec<_>>();
         let idx_sql_vals = val1
             .clone()
             .into_iter()
-            .map(|d| {
-                SqlValuePb {
-                    data: Some(d),
-                    ..Default::default()
-                }
+            .map(|d| SqlValuePb {
+                data: Some(d),
+                ..Default::default()
             })
             .collect::<Vec<_>>();
 
         // Create a new index_page Leaf message
-        let serialized_page = indexkey::create_page(true);
+        let serialized_page = indexkey::create_page(IndexKeyType::Unique);
         let serialized_page =
             indexkey::insert_key_from_values(&serialized_page, 1, &idx_sql_vals, 0, false).unwrap();
 
@@ -303,7 +300,7 @@ fn test_compare_mismatched_key() {
 #[test]
 fn test_index_binary_search() {
     // Create a new index_page Leaf message
-    let mut serialized_page = indexkey::create_page(true);
+    let mut serialized_page = indexkey::create_page(IndexKeyType::Unique);
 
     // Add index entries for the test cases
     let idx_values = vec![111, 222, 333];
@@ -347,7 +344,7 @@ fn test_index_binary_search() {
 #[test]
 pub fn test_index_iter() {
     // Create a new index_page Leaf message
-    let mut serialized_page = indexkey::create_page(true);
+    let mut serialized_page = indexkey::create_page(IndexKeyType::Unique);
 
     // Add index entries for the test cases
     let idx_values = vec![111, 222, 333];
@@ -403,7 +400,7 @@ pub fn test_index_iter() {
 #[test]
 pub fn test_index_scan() {
     // Create a new index_page Leaf message
-    let mut serialized_page = indexkey::create_page(true);
+    let mut serialized_page = indexkey::create_page(IndexKeyType::Unique);
 
     // Add index entries for the test cases
     let idx_values = vec![111, 222, 333];
@@ -591,7 +588,6 @@ pub fn test_index_scan() {
             &start_comps,
             &end_cmp_vals,
             &end_comps,
-            true,
         )
         .unwrap();
         match search_opt {
@@ -625,7 +621,7 @@ pub fn test_index_scan() {
 #[test]
 fn test_index_scan_compound_key() {
     // Create a new index_page Leaf message
-    let mut serialized_page = indexkey::create_page(true);
+    let mut serialized_page = indexkey::create_page(IndexKeyType::Unique);
 
     // Add index entries for the test cases:
     //  ("aaa", 111) -> oid 11
@@ -781,7 +777,6 @@ fn test_index_scan_compound_key() {
             &start_comps,
             &end_cmp_vals,
             &end_comps,
-            true
         )
         .unwrap();
         match search_opt {

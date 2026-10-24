@@ -24,7 +24,7 @@ use sqlparse::ast;
 #[test]
 fn test_encode_idataset() {
     let msg = IDatasetPb {
-        dataset_id: 42,
+        ds_id: 42,
         key_val_idx: 7,
         name: "a.b.c".to_string(),
     };
@@ -153,10 +153,10 @@ fn test_translate_expr() {
         values: vec![],
         max_value_idx: 0,
     };
-    // Use the dataset_id if available
+    // Use the ds_id if available
     let idataset = IDatasetPb {
         name: "test_dataset".to_string(),
-        dataset_id: 111,
+        ds_id: 111,
         key_val_idx: 0,
     };
     let inst = SqlInstPb {
@@ -181,7 +181,7 @@ fn test_translate_expr() {
     println!("Translation result: {:?}", res);
 
     // Expected:
-    //    IDataset name=test_dataset key_val_idx=0 dataset_id=111
+    //    IDataset name=test_dataset key_val_idx=0 ds_id=111
     //    IDatapath pathstr=a jpath=[] parent_path=["a"] ds_name=a alias= key_val_idx=-1 val_idx=1 phase=0 rels=[]
     //    IExpr op=0 lval=0 rval=1 resval=2
     //    ICompare comp=0 left_val_idx=2 right_val_idx=3

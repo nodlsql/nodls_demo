@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use indexcapn::indexkey_capnp::index_page;
+use indexkey::IndexKeyType;
 use rust_decimal::Decimal;
 use sqlinsts::sqlinsts::{sql_value_pb::Data, CompOperatorPb, DecimalValuePb, SqlValuePb};
 use std::vec;
@@ -20,8 +21,8 @@ use std::vec;
 macro_rules! get_index_page_reader {
     ($serialized_page:ident) => {
         // Deserialize the existing index_page
-        if let Ok(reader) = ::capnp::serialize::read_message(
-            &mut std::io::Cursor::new($serialized_page),
+        if let Ok(reader) = ::capnp::serialize::read_message_from_flat_slice_no_alloc(
+            &mut $serialized_page.as_ref(),
             ::capnp::message::ReaderOptions::new(),
         ) {
             reader
@@ -34,7 +35,7 @@ macro_rules! get_index_page_reader {
 #[test]
 fn test_insert_decimal_key() {
     // Create a new index_page Leaf message
-    let mut serialized_page = indexkey::create_page(true);
+    let mut serialized_page = indexkey::create_page(IndexKeyType::Unique);
 
     let dec_values = vec![
         // sql_value, expected order after insertion
@@ -62,7 +63,6 @@ fn test_insert_decimal_key() {
             *id, // id value to insert
             &idx_sql_vals,
             &mut serialized_page,
-            true,
         );
         assert!(
             insert_res.is_ok(),
@@ -77,9 +77,10 @@ fn test_insert_decimal_key() {
     let mut idx = 0;
 
     // 1 - Full scan
-    let (ids, scan_sts) = indexsrch::index_scan(&serialized_page, &vec![], &vec![], &vec![], &vec![], true)
-        .unwrap()
-        .unwrap();
+    let (ids, scan_sts) =
+        indexsrch::index_scan(&serialized_page, &vec![], &vec![], &vec![], &vec![])
+            .unwrap()
+            .unwrap();
     println!("Scanned ids: {:?}, sts: {:?}", ids, scan_sts);
     assert_eq!(
         scan_sts,
@@ -111,9 +112,10 @@ fn test_insert_decimal_key() {
         ..Default::default()
     }];
     let start_cmp = vec![CompOperatorPb::Gt];
-    let (ids, scan_sts) = indexsrch::index_scan(&serialized_page, &start_key, &start_cmp, &vec![], &vec![], true)
-        .unwrap()
-        .unwrap();
+    let (ids, scan_sts) =
+        indexsrch::index_scan(&serialized_page, &start_key, &start_cmp, &vec![], &vec![])
+            .unwrap()
+            .unwrap();
     println!("Scanned ids: {:?}, sts: {:?}", ids, scan_sts);
     assert_eq!(
         scan_sts,
@@ -131,7 +133,7 @@ fn test_insert_decimal_key() {
 #[test]
 fn test_index_binary_search() {
     // Create a new index_page Leaf message
-    let mut serialized_page = indexkey::create_page(true);
+    let mut serialized_page = indexkey::create_page(IndexKeyType::Unique);
 
     // Add index entries for the test cases
     let idx_values = vec![
@@ -139,7 +141,7 @@ fn test_index_binary_search() {
         Decimal::new(333, 2), // 3.33
         Decimal::new(100, 1), // 10.0
     ];
-    for (i , idxval) in idx_values.iter().enumerate() {
+    for (i, idxval) in idx_values.iter().enumerate() {
         let idx_sql_val = SqlValuePb {
             data: Some(Data::DecimalValue(DecimalValuePb {
                 number: idxval.mantissa() as i64,
@@ -148,7 +150,14 @@ fn test_index_binary_search() {
             ..Default::default()
         };
         let idx_sql_vals = vec![idx_sql_val];
-        serialized_page = indexkey::insert_key_from_values(&serialized_page, i as u32 + 20, &idx_sql_vals, i, false).unwrap();
+        serialized_page = indexkey::insert_key_from_values(
+            &serialized_page,
+            i as u32 + 20,
+            &idx_sql_vals,
+            i,
+            false,
+        )
+        .unwrap();
     }
 
     indexkey::pretty_print_index_page(&serialized_page).unwrap();

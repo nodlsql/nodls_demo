@@ -16,13 +16,14 @@ use crate::utils::{self, DatasetAnalyzer, RelAnalyzer};
 use sqlexet::SqlExeTrait;
 use sqlinsts::sqlinsts::{
     sql_inst_pb, IDatapathPb, IDatasetPb, IDdlPb, IDeletePb, IIndexPb, IInsertPb, IUpdatePb,
-    IndexOpPb, RelDescPb, SqlInstPb, ValRelsUpdPb,
+    IndexOpPb, RelDescPb, SqlInstPb, SqlStmtPb, ValRelsUpdPb,
 };
 use tracing::debug;
 
 // Push idataset or iindex if applicable.
 pub fn push_idataset(
     ctxt: &mut impl SqlExeTrait,
+    stmt: &SqlStmtPb,
     analyzers: &Vec<DatasetAnalyzer>,
     idataset_inst: &IDatasetPb,
     key_val_idx: i32,
@@ -31,7 +32,7 @@ pub fn push_idataset(
     if idataset_inst.name == "dataset" {
         optimized_insts.push(SqlInstPb {
             inst: Some(sql_inst_pb::Inst::Dataset(IDatasetPb {
-                dataset_id: ctxt.get_meta_ds_id(),
+                ds_id: ctxt.get_meta_ds_id(),
                 key_val_idx: key_val_idx,
                 ..idataset_inst.clone()
             })),
@@ -41,22 +42,25 @@ pub fn push_idataset(
     for analyzer in analyzers {
         if analyzer.idataset.name == idataset_inst.name {
             let mut has_idx = false;
-            // TBD - We pick up first come index for now
-            if let Some(index_analyzer) = analyzer.index_analyzers.first() {
-                has_idx = true;
-                optimized_insts.push(SqlInstPb {
-                    inst: Some(sql_inst_pb::Inst::Index(IIndexPb {
-                        key_val_idx: key_val_idx,
-                        ..index_analyzer.iindex.clone()
-                    })),
-                });
+            // For create index we don't want to optimize dataset scan
+            if !SqlStmtPb::eq(stmt, &SqlStmtPb::AlterDsStmt) {
+                // TBD - We pick up first come index for now
+                if let Some(index_analyzer) = analyzer.index_analyzers.first() {
+                    has_idx = true;
+                    optimized_insts.push(SqlInstPb {
+                        inst: Some(sql_inst_pb::Inst::Index(IIndexPb {
+                            key_val_idx: key_val_idx,
+                            ..index_analyzer.iindex.clone()
+                        })),
+                    });
+                }
             }
             // For drop dataset we want to drop both the indexes and the dataset
             if !has_idx {
                 // Pick up the dataset id from analyzer and udpate the dataset inst
                 optimized_insts.push(SqlInstPb {
                     inst: Some(sql_inst_pb::Inst::Dataset(IDatasetPb {
-                        dataset_id: analyzer.idataset.dataset_id,
+                        ds_id: analyzer.idataset.ds_id,
                         key_val_idx: key_val_idx,
                         ..idataset_inst.clone()
                     })),
@@ -170,7 +174,7 @@ pub fn push_iinsert(
 ) -> () {
     optimized_insts.push(SqlInstPb {
         inst: Some(sql_inst_pb::Inst::Insert(IInsertPb {
-            ds_id: analyzer.idataset.dataset_id,
+            ds_id: analyzer.idataset.ds_id,
             valsrels: vrels_upd,
             ..iinsert_inst.clone()
         })),
@@ -180,27 +184,26 @@ pub fn push_iinsert(
 
 pub fn push_ddlupdate(
     analyzers: &Vec<DatasetAnalyzer>,
-    ddlupdate_inst: &IDdlPb,
+    ddl_inst: &IDdlPb,
     optimized_insts: &mut Vec<SqlInstPb>,
 ) -> () {
     // Get target dataset name from ddlupdate inst
-    let tgt_ds_name = &ddlupdate_inst.rs_tgt_name;
-    let ds_name = &ddlupdate_inst.ds_name;
+    let tgt_ds_name = &ddl_inst.rs_tgt_name;
+    let ds_name = &ddl_inst.ds_name;
     if analyzers.is_empty() {
         // no ds analyzer for create ds with no rel target in sight
         optimized_insts.push(SqlInstPb {
-            inst: Some(sql_inst_pb::Inst::DdlUpdate(IDdlPb {
-                ..ddlupdate_inst.clone()
-            })),
+            inst: Some(sql_inst_pb::Inst::DdlUpdate(IDdlPb { ..ddl_inst.clone() })),
         });
     } else {
+        // Dataset already exists
         let mut ds_id = 0;
         let mut tgt_ds_id = 0;
         for analyzer in analyzers {
             if analyzer.idataset.name == *ds_name {
-                ds_id = analyzer.idataset.dataset_id;
+                ds_id = analyzer.idataset.ds_id;
             } else if analyzer.idataset.name == *tgt_ds_name {
-                tgt_ds_id = analyzer.idataset.dataset_id;
+                tgt_ds_id = analyzer.idataset.ds_id;
             }
         }
         optimized_insts.push(SqlInstPb {
@@ -208,7 +211,7 @@ pub fn push_ddlupdate(
             inst: Some(sql_inst_pb::Inst::DdlUpdate(IDdlPb {
                 ds_id: ds_id,
                 rs_tgt_id: tgt_ds_id,
-                ..ddlupdate_inst.clone()
+                ..ddl_inst.clone()
             })),
         });
     }

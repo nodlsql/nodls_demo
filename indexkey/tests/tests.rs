@@ -13,14 +13,14 @@
 // limitations under the License.
 
 use indexcapn::indexkey_capnp::{index_page, key_component};
+use indexkey::IndexKeyType;
 use sqlinsts::sqlinsts::{sql_value_pb::Data, SqlValuePb};
-use std::cell::RefCell;
 
 macro_rules! get_index_page_reader {
     ($serialized_page:ident) => {
         // Deserialize the existing index_page
-        if let Ok(reader) = ::capnp::serialize::read_message(
-            &mut std::io::Cursor::new($serialized_page),
+        if let Ok(reader) = ::capnp::serialize::read_message_from_flat_slice_no_alloc(
+            &mut $serialized_page.as_ref(),
             ::capnp::message::ReaderOptions::new(),
         ) {
             reader
@@ -46,10 +46,11 @@ pub fn test_create_page_with_new_key_entry() {
     values.push(int_value);
 
     // Create a new index_page message
-    let serialized_page = indexkey::create_page(true);
+    let serialized_page = indexkey::create_page(IndexKeyType::Unique);
 
     // Call the function to create a page with the new key entry
-    let serialized_page = indexkey::insert_key_from_values(&serialized_page, 111, &values, 0, false).unwrap();
+    let serialized_page =
+        indexkey::insert_key_from_values(&serialized_page, 111, &values, 0, false).unwrap();
 
     // Deserialize and verify the new key entry was added correctly
     let reader = get_index_page_reader!(serialized_page);
@@ -83,7 +84,7 @@ pub fn test_insert_key_from_values() {
     //
 
     // Create a new index_page Leaf message
-    let serialized_page = indexkey::create_page(true);
+    let serialized_page = indexkey::create_page(IndexKeyType::Unique);
 
     // Append the initial values and get result buffer
     let mut initial_values: Vec<SqlValuePb> = Vec::new();
@@ -112,7 +113,8 @@ pub fn test_insert_key_from_values() {
         ..Default::default()
     };
     new_values.push(new_val2);
-    let serialized_page = indexkey::insert_key_from_values(&serialized_page, 333, &new_values, 1, false).unwrap();
+    let serialized_page =
+        indexkey::insert_key_from_values(&serialized_page, 333, &new_values, 1, false).unwrap();
 
     // Deserialize and verify both entries exist
     let reader = get_index_page_reader!(serialized_page);
@@ -157,7 +159,7 @@ pub fn test_insert_key_from_values() {
 #[test]
 fn test_insert_keys_from_values() {
     // Create a new index_page Leaf message
-    let mut serialized_page = indexkey::create_page(true);
+    let mut serialized_page = indexkey::create_page(IndexKeyType::Unique);
 
     let insert_values = vec![
         // id_value, values to insert
@@ -218,9 +220,10 @@ fn test_read_key() {
     values.push(int_val);
 
     // Create a new index_page Leaf message
-    let serialized_page = indexkey::create_page(true);
+    let serialized_page = indexkey::create_page(IndexKeyType::Unique);
 
-    let serialized_page = indexkey::insert_key_from_values(&serialized_page, id_value, &values, 0, false).unwrap();
+    let serialized_page =
+        indexkey::insert_key_from_values(&serialized_page, id_value, &values, 0, false).unwrap();
 
     // Read back the node and extract the key
     let reader = get_index_page_reader!(serialized_page);
@@ -253,7 +256,7 @@ fn test_delete_key() {
     ];
     for (delete_pos, expected_ids) in test_cases {
         // Create a new index_page Leaf message
-        let mut serialized_page = indexkey::create_page(true);
+        let mut serialized_page = indexkey::create_page(IndexKeyType::Unique);
 
         // Append some entries to the node
         for i in 0..5 {
@@ -269,8 +272,14 @@ fn test_delete_key() {
             };
             values.push(int_sql_val);
             let id = i + 1000;
-            serialized_page =
-                indexkey::insert_key_from_values(&serialized_page, id as u32, &values, i as usize, false).unwrap();
+            serialized_page = indexkey::insert_key_from_values(
+                &serialized_page,
+                id as u32,
+                &values,
+                i as usize,
+                false,
+            )
+            .unwrap();
         }
 
         // Delete the key at position 2 (ids 1002) and get the updated node buffer

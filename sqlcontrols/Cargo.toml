@@ -37,6 +37,7 @@ regex = "1.13.1"
 sqlinsts = { version = "0.1.0", path = "../sqlinsts" }
 indexsrch = { version = "0.1.0", path = "../indexsrch" }
 dupindexkey = { version = "0.1.0", path = "../dupindexkey" }
+indexkey = { version = "0.1.0", path = "../indexkey" }
 indexcapn = { version = "0.1.0", path = "../indexcapn" }
 indexbt = { version = "0.1.0", path = "../indexbt" }
 relpart = { version = "0.1.0", path = "../relpart" }

@@ -15,12 +15,14 @@
 use demodata::tstdata;
 
 use sqlexet::{
-    IdSpc, MTS_CLASSNOTFOUND, MTS_ENDOFSTREAM, MTS_OBJNOTFOUND, MtLTimeT, MtOidT, MtSchemaType, MtSizeT, MtStsT, STS_SUCCESS, SqlExeTrait, UpdCounter,
+    IdSpc, MtBool, MtLTimeT, MtOidT, MtSchemaType, MtSizeT, MtStsT, SqlExeTrait, UpdCounter,
+    MTS_CLASSNOTFOUND, MTS_ENDOFSTREAM, MTS_OBJNOTFOUND, STS_SUCCESS,
 };
 use std::ffi::c_void;
 use tracing::debug;
 
 static MIN_ENTITY_ID: MtOidT = 10000;
+static MAX_ITEM_SIZE: MtSizeT = 32000;
 
 pub struct DemoContextT {
     handle: *mut c_void,
@@ -49,36 +51,8 @@ impl SqlExeTrait for DemoContextT {
         }
     }
 
-    fn increment_count(&mut self, count: sqlexet::UpdCounter) {
-        // Loop through the counters to find a matching type
-        // Create a counter if not already there
-        if self.counters.is_empty() {
-            self.counters.push(count);
-            return;
-        }
-        let mut found = false;
-        for counter in &mut self.counters {
-            if std::mem::discriminant(counter) == std::mem::discriminant(&count) {
-                counter.inc(count.get());
-                found = true;
-                break;
-            }
-        }
-        if !found {
-            self.counters.push(count);
-        }
-    }
-
-    fn clear_counts(&mut self) {
-        self.counters.clear();
-    }
-
-    fn print_count(&self) -> String {
-        if self.counters.is_empty() {
-            "".to_string()
-        } else {
-            self.counters.iter().map(|c| c.print()).collect::<Vec<_>>().join("\n")
-        }
+    fn get_counts(&mut self) -> &mut Vec<UpdCounter> {
+        &mut self.counters
     }
 
     fn set_handle(&mut self, handle: *mut c_void) {
@@ -112,7 +86,7 @@ impl SqlExeTrait for DemoContextT {
         next_item_id(self)
     }
 
-    fn connect_database(&mut self, _database: &str) -> MtStsT {
+    fn connect_database(&mut self, _database: &str, _init: MtBool) -> MtStsT {
         STS_SUCCESS
     }
 
@@ -519,6 +493,10 @@ impl SqlExeTrait for DemoContextT {
             debug!("Item id {}: inv relinfo {:?}", item.id, relinfo);
         }
         STS_SUCCESS
+    }
+
+    fn get_max_item_size(&self) -> MtSizeT {
+        MAX_ITEM_SIZE
     }
 }
 

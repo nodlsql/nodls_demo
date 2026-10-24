@@ -88,7 +88,8 @@ message IDdlPb {
   string rs_tgt_name = 5;       // for add rel
   uint32 rs_tgt_id = 6;         // for add rel
   IndexTypePb idx_type = 7;     // for create index
-  repeated string seg_strs = 8; // for create index, composite key 'a.b, c'
+  int32 root_val_idx = 8;       // for alter create index
+  repeated string seg_strs = 9; // for create index, composite key 'a.b, c'
 }
 
 enum OperPb {
@@ -115,7 +116,7 @@ message ISetOptionsPb {
 message IDatasetPb {
   string name = 1;
   int32 key_val_idx = 2;       // stores current obj retrieved
-  uint32 dataset_id = 3;
+  uint32 ds_id = 3;
 }
 
 message IRelPb {
@@ -209,17 +210,19 @@ enum IndexOpPb {
   INSERT_KEY = 2;
 }
 
-// Index scan inst
+// Index scan, insert, delete inst
 message IIndexPb {
   IndexTypePb idx_type = 1;
   IndexOpPb op = 2;
   string ds_name = 3;
-  string name = 4;
-  repeated string seg_strs = 5;      // composite key 'a.b, c'
-  repeated IndexSegPb seg_vecs = 6;  // same, vector format
-  int32 key_val_idx = 7;             // stores current obj retrieved
-  uint32 root_id = 8;                // root node
-  CompositeRangePb range = 9;        // One range per composite key segment
+  uint32 ds_id = 4;                  // Set for ALTER CREATE INDEX
+  string name = 5;
+  repeated string seg_strs = 6;      // composite key 'a.b, c'
+  repeated IndexSegPb seg_vecs = 7;  // same, vector format
+  int32 key_val_idx = 8;             // stores current obj retrieved
+  int32 root_val_idx = 9;            // root id key val idx to populate index for  'ALTER CREATE INDEX ...'
+  uint32 root_id = 10;                // root id is set if index already exists
+  CompositeRangePb range = 11;       // One range per composite key segment
 }
 
 message InvRelEltPb {

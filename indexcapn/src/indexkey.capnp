@@ -25,7 +25,7 @@ struct DecimalValue {
   number @1 :Int64;
 }
 
-# Key value pair
+# Key definition
 struct KeyComponent {
   union {
     nullCpt @0 :Void;
@@ -40,7 +40,9 @@ struct KeyComponent {
 # Use same page definition for node and leaf to avoid code duplication
 struct IndexPage {
   union {
-    uniqKeyEntries @0 :List(UniqIndexKey);    # no duplica entries
-    dupKeyEntries @1 :List(DupIndexKey);  # allow key duplica entries
+    nodeKeyEntries @0 :List(UniqIndexKey);    # no duplica entries
+    uniqKeyEntries @1 :List(UniqIndexKey);    # no duplica entries
+    dupKeyEntries @2 :List(DupIndexKey);      # allow key duplica entries
+    slistEntries @3 :List(UInt32);            # sorted list
   }
 }

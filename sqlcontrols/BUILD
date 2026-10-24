@@ -33,6 +33,7 @@ rust_library(
     deps = [
         "//demoexe:lib",
         "//indexbt:lib",
+        "//indexkey:lib",
         "//indexsrch:lib",
         "//jbparse:lib",
         "//relpart:lib",
@@ -243,11 +244,11 @@ rust_test(
     crate_root = "tests/ddlnono.rs",
     deps = [
         ":lib",
-        "//sqloptimize:lib",
         "//demoexe:lib",
         "//jbparse:lib",
         "//sqlexet:lib",
         "//sqlinsts:lib",
+        "//sqloptimize:lib",
         "//sqlparse:lib",
         "//sqlplan:lib",
     ] + all_crate_deps(

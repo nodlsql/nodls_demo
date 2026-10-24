@@ -20,12 +20,13 @@ use crossterm::{
     style::{Color, Print, ResetColor, SetForegroundColor},
     terminal::{self, ClearType},
 };
-#[cfg(any(demo, demoprt))]
+#[cfg(not(any(prod, prodprt)))]
 use demoexe::DemoContextT as SqlContextT;
-use sqlcontrols;
 #[cfg(any(prod, prodprt))]
 use sqlexe::SqlContextT;
+
 use sqlexet::SqlExeTrait;
+use sqlcontrols;
 
 pub mod help;
 use self::help::{classify_help_input, render_help, HelpAction, HelpTopic};
@@ -42,6 +43,8 @@ struct Args {
     // Database to connect to
     #[arg(short, long)]
     database: Option<String>,
+    #[arg(short, long, default_value_t = false)]
+    init: bool,
 }
 
 pub struct CommandPrompt {
@@ -104,8 +107,7 @@ impl CommandPrompt {
                         // Handle cancel statement if line or multi-line statement is not empty
                         if modifiers.contains(KeyModifiers::CONTROL)
                             && c == 'd'
-                            && (!self.current_line.is_empty()
-                                || !self.statement_lines.is_empty())
+                            && (!self.current_line.is_empty() || !self.statement_lines.is_empty())
                         {
                             self.cancel_statement()?;
                         } else if !modifiers.contains(KeyModifiers::CONTROL) {
@@ -260,11 +262,8 @@ impl CommandPrompt {
                 }
 
                 // Process the command
-               terminal::disable_raw_mode()?; 
-                execute!(
-                    stdout,
-                    MoveToColumn(0)
-                )?;
+                terminal::disable_raw_mode()?;
+                execute!(stdout, MoveToColumn(0))?;
                 let res = sqlcontrols::stmt_exec(ctxt, &complete_statement);
                 match res {
                     Ok(rows) => {
@@ -276,7 +275,7 @@ impl CommandPrompt {
                                 Print(format!("{}\n", r))
                             )?;
                         }
-                        let count_msg = ctxt.print_count();
+                        let count_msg = ctxt.print_counts();
                         if !count_msg.is_empty() {
                             execute!(
                                 stdout,
@@ -466,13 +465,14 @@ fn main() -> Result<()> {
     #[cfg(any(prod, prodprt))]
     {
         let args = Args::parse();
+        let init = args.init;
         let db = args.database.clone();
         if db.is_none() {
             println!("Database not specified");
             return Ok(());
         }
         let database = db.unwrap();
-        let sts = ctxt.connect_database(database.as_str());
+        let sts = ctxt.connect_database(database.as_str(), init);
         if sts != sqlexet::STS_SUCCESS {
             println!("Failed to connect to database, status code: {}", sts);
             return Ok(());

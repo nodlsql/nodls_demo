@@ -48,7 +48,12 @@ pub fn translate(
     ctxt: &mut impl SqlExeTrait,
     stmt: &mut ast::SqlStmt,
 ) -> Result<SqlPlanPb, SqlTranslateError> {
-    let mut sqlplan;
+    let mut sqlplan = SqlPlanPb {
+        sqlstmt: SqlStmtPb::SelectStmt.into(),
+        insts: vec![],
+        values: vec![],
+        max_value_idx: 0,
+    };
 
     debug!("AST: {}", stmt.pretty_print());
 
@@ -58,13 +63,6 @@ pub fn translate(
     match stmt {
         // Select statement
         ast::SqlStmt::Select(sel) => {
-            sqlplan = SqlPlanPb {
-                sqlstmt: SqlStmtPb::SelectStmt.into(),
-                insts: vec![],
-                values: vec![],
-                max_value_idx: 0,
-            };
-
             translate_from_list(&mut sqlplan, &mut sel.from_list)?;
             translate_predicates(&mut sqlplan, &mut sel.predicate_list, &sel.from_list)?;
             translate_proj(&mut sqlplan, &mut sel.proj_list, &sel.from_list)?;
@@ -93,9 +91,7 @@ pub fn translate(
         ast::SqlStmt::DeleteFrom(del) => {
             sqlplan = SqlPlanPb {
                 sqlstmt: SqlStmtPb::DeleteFromStmt.into(),
-                insts: vec![],
-                values: vec![],
-                max_value_idx: 0,
+                ..sqlplan
             };
             translate_from_list(
                 &mut sqlplan,
@@ -122,9 +118,7 @@ pub fn translate(
         ast::SqlStmt::Update(update) => {
             sqlplan = SqlPlanPb {
                 sqlstmt: SqlStmtPb::UpdateStmt.into(),
-                insts: vec![],
-                values: vec![],
-                max_value_idx: 0,
+                ..sqlplan
             };
             let from_list = vec![ast::FromListItem {
                 ds_name: update.ds_name.clone(),
@@ -151,7 +145,7 @@ pub fn translate_create_dataset(
         max_value_idx: 0,
     };
     utils::ddl_create_dataset(&mut sqlplan, &dataset_stmt.name);
-    utils::ddl_update_indexes(&mut sqlplan, &dataset_stmt.name, &dataset_stmt.actions)?;
+    utils::ddl_update_indexes(&mut sqlplan, &dataset_stmt.name, &dataset_stmt.actions, true)?;
     utils::ddl_update_rels(&mut sqlplan, &dataset_stmt.name, &dataset_stmt.actions)?;
     Ok(sqlplan)
 }
@@ -198,7 +192,24 @@ pub fn translate_alter_dataset(
     };
     // IDataset instruction
     utils::ddl_update_rels(&mut sqlplan, &alter_stmt.ds_name, &alter_stmt.actions)?;
-    utils::ddl_update_indexes(&mut sqlplan, &alter_stmt.ds_name, &alter_stmt.actions)?;
+    // Do indexes last to keep populating IDataset and IIndex instructions at the end of the instruction list
+    utils::ddl_update_indexes(&mut sqlplan, &alter_stmt.ds_name, &alter_stmt.actions, false)?;
+    // Count how many add index actions are present in the alter statement
+    let add_index_count = alter_stmt
+        .actions
+        .iter()
+        .filter(|action| {
+            if let ast::AlterAction::AddIdx(_) = action {
+                return true;
+            }
+            false
+        })
+        .count();
+    // If any add index actions are present, allocate a value placeholder for populating the index
+    if add_index_count > 0 {
+        let idx = utils::add_value(&mut sqlplan, false, None);
+        debug!("Add index count: {} key_val_idx={}", add_index_count, idx);
+    }
     Ok(sqlplan)
 }
 
@@ -340,7 +351,7 @@ pub fn translate_idataset(
     let idx = utils::add_value(sqlplan, false, None);
     let idataset = IDatasetPb {
         name: dataset_item.ds_name.to_string(),
-        dataset_id: 0, // set by the optimizer
+        ds_id: 0, // set by the optimizer
         key_val_idx: idx,
     };
     let inst = SqlInstPb {
