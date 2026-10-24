@@ -71,3 +71,19 @@ rust_test(
         proc_macro = True,
     ),
 )
+
+rust_test(
+    name = "slist",
+    srcs = ["tests/slist.rs"],
+    crate_root = "tests/slist.rs",
+    deps = [
+        ":lib",
+        "//slistkey:lib",
+        "//indexcapn:lib",
+        "//indexkey:lib",
+        "//sqlinsts:lib",
+    ] + all_crate_deps(
+        normal = True,
+        proc_macro = True,
+    ),
+)

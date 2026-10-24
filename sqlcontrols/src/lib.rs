@@ -18,12 +18,12 @@ use sqlexet::{
     IdSpc, MtOidT, MtSchemaType, SqlExeTrait, MIN_USER_DATASET_ID, MTS_ENDOFSTREAM, STS_SUCCESS,
 };
 
+use indexkey::IndexKeyType;
 use sqlinsts::sqlinsts::{
     sql_inst_pb::Inst, sql_value_pb, CompOperatorPb, DdlOpPb, IComparePb, IDatapathPb, IDatasetPb,
     IDeletePb, IExprPb, IIndexPb, IInsertPb, IProjPb, IRelPb, IUpdatePb, IndexOpPb, IndexTypePb,
     OperPb, RangePb, RelUpdPb, SqlInstPb, SqlPlanPb, SqlStmtPb, SqlValuePb, UpdateOpPb,
 };
-
 use utils::SqlExecError;
 
 use std::cell::RefCell;
@@ -88,6 +88,7 @@ pub fn stmt_exec(ctxt: &mut impl SqlExeTrait, input: &str) -> Result<Vec<String>
     ctxt.activate_task();
     ctxt.clear_counts();
     let mut plan = sqlplan::translate(ctxt, &mut ast)?;
+    // Execute
     sqloptimize::optimize_plan(ctxt, &mut plan)?;
     #[cfg(any(demoprt, prodprt))]
     println!("SQL Plan:\n{}", sqlplan::utils::pretty_print_plan(&plan));
@@ -116,9 +117,15 @@ pub fn stmt_exec(ctxt: &mut impl SqlExeTrait, input: &str) -> Result<Vec<String>
     );
     let mut proj_rows: Vec<String> = vec![];
     let res = match stmt {
-        SqlStmtPb::CreateDsStmt => alter_dataset_stmt_exec(ctxt, &plan),
-        SqlStmtPb::AlterDsStmt => alter_dataset_stmt_exec(ctxt, &plan),
-        SqlStmtPb::DropDsStmt => alter_dataset_stmt_exec(ctxt, &plan),
+        SqlStmtPb::CreateDsStmt => {
+            ddl_update_stmt_exec(ctxt, &plan, 0, &values, proj_cols, &mut proj_rows)
+        }
+        SqlStmtPb::AlterDsStmt => {
+            ddl_update_stmt_exec(ctxt, &plan, 0, &values, proj_cols, &mut proj_rows)
+        }
+        SqlStmtPb::DropDsStmt => {
+            ddl_update_stmt_exec(ctxt, &plan, 0, &values, proj_cols, &mut proj_rows)
+        }
         SqlStmtPb::DescribeDsStmt => describe_dataset_stmt_exec(ctxt, &plan),
         SqlStmtPb::SelectStmt
         | SqlStmtPb::DeleteFromStmt
@@ -158,14 +165,20 @@ fn describe_dataset_stmt_exec(
     res
 }
 
-fn alter_dataset_stmt_exec(
+fn ddl_update_stmt_exec(
     ctxt: &mut impl SqlExeTrait,
     plan: &SqlPlanPb,
+    offset: usize,
+    values: &Vec<RefCell<SqlValuePb>>,
+    proj_cols: &mut Vec<String>,
+    proj_rows: &mut Vec<String>,
 ) -> Result<String, SqlExecError> {
     debug!("Alter dataset descriptor plan: {:?}", plan);
     // either from inst of just created for create dataset statement, or from previous alter statement
     let mut create_ds = false;
     let mut drop_ds = false;
+    let mut create_idx_cnt = 0;
+    let mut next_offset = offset;
     let mut ds_desc = jbparse::DatasetDesc {
         name: "".to_string(),
         _id: 0,
@@ -174,12 +187,15 @@ fn alter_dataset_stmt_exec(
     };
     ctxt.start_tran();
     let mut res: Result<std::string::String, SqlExecError> = Ok("".to_string());
+    // DDL updates are set at the head of the plan, so they are processed first. Next statements
+    // in the plan should loop on dataset to populate new indexes
     'outer: for inst_option in &plan.insts {
         match inst_option.inst.as_ref() {
             // SqlInstPb { inst: Some(Index(IIndexPb { idx_type: Pkey, name: "", path: ["a.b", "c"], key_val_idx: -1, index_key: -1 })) }
             Some(Inst::DdlUpdate(d)) => {
                 match DdlOpPb::try_from(d.op).unwrap() {
                     DdlOpPb::CreateDs => {
+                        next_offset = next_offset + 1;
                         ds_desc.name = d.ds_name.clone();
                         ds_desc._id = ctxt.objid_make(sqlexet::MtSchemaType::KeyDataset);
                         create_ds = true;
@@ -194,13 +210,8 @@ fn alter_dataset_stmt_exec(
                         drop_ds = true;
                         break 'outer;
                     }
-                    DdlOpPb::DescribeDs => {
-                        get_ds_desc!(ctxt, d.ds_name, d.ds_id, res, ds_desc);
-                        let dsdesc_str = utils::describe_ds(&ds_desc);
-                        println!("{}", dsdesc_str);
-                        break 'outer;
-                    }
                     DdlOpPb::CreateRel => {
+                        next_offset = next_offset + 1;
                         get_ds_desc!(ctxt, d.ds_name, d.ds_id, res, ds_desc);
                         // Should not collide with dataset name
                         if d.name == ds_desc.name {
@@ -230,6 +241,7 @@ fn alter_dataset_stmt_exec(
                         });
                     }
                     DdlOpPb::DropRel => {
+                        next_offset = next_offset + 1;
                         get_ds_desc!(ctxt, d.ds_name, d.ds_id, res, ds_desc);
                         debug!("Dropping rel: {:?}", d);
                         let mut found = false;
@@ -249,6 +261,7 @@ fn alter_dataset_stmt_exec(
                         }
                     }
                     DdlOpPb::CreateIdx => {
+                        next_offset = next_offset + 1;
                         get_ds_desc!(ctxt, d.ds_name, d.ds_id, res, ds_desc);
                         debug!("Creating index '{}', path: {:?}", d.name, d.seg_strs);
                         // Verify if index already exists
@@ -269,12 +282,12 @@ fn alter_dataset_stmt_exec(
                                 break 'outer;
                             }
                         }
-                        let mut unique = true;
+                        let mut idx_key_type = IndexKeyType::Unique;
                         let idx_type = match IndexTypePb::try_from(d.idx_type).unwrap() {
                             IndexTypePb::Pkey => "pkey",
                             IndexTypePb::Unique => "unique",
                             _ => {
-                                unique = false;
+                                idx_key_type = IndexKeyType::Duplicate;
                                 "default"
                             }
                         };
@@ -285,7 +298,7 @@ fn alter_dataset_stmt_exec(
                             ctxt,
                             ctxt.get_tranid(),
                             &mut root_key,
-                            unique,
+                            idx_key_type,
                         );
                         if sts == STS_SUCCESS {
                             debug!("Created index '{}', key={}", d.name, root_key);
@@ -295,6 +308,9 @@ fn alter_dataset_stmt_exec(
                                 idx_type: idx_type.to_string(),
                                 segs: d.seg_strs.clone(),
                             });
+                            // Set root_id value at key_val_idx
+                            let mut val = values[d.root_val_idx as usize].borrow_mut();
+                            val.data = Some(sql_value_pb::Data::OidValue(root_key));
                         } else {
                             res = Err(SqlExecError::ExecutionError(format!(
                                 "Failed to create index for dataset {}",
@@ -302,8 +318,11 @@ fn alter_dataset_stmt_exec(
                             )));
                             break 'outer;
                         }
+                        create_idx_cnt += 1;
                     }
                     DdlOpPb::DropIdx => {
+                        next_offset = next_offset + 1;
+                        let mut found = false;
                         get_ds_desc!(ctxt, d.ds_name, d.ds_id, res, ds_desc);
                         debug!("Dropping index '{}' {:?}", d.name, ds_desc);
                         for i in 0..ds_desc.indexes.len() {
@@ -325,31 +344,48 @@ fn alter_dataset_stmt_exec(
                                         "Failed to delete index for dataset {}",
                                         d.ds_name
                                     )));
+                                    break 'outer;
                                 }
                                 // Found the index
-                                break 'outer;
+                                found = true;
+                                break;
                             }
                         }
-                        let mut errmsg = format!(
-                            "Failed to find index '{}' in dataset '{}'",
-                            d.name, d.ds_name
-                        );
-                        if d.idx_type == IndexTypePb::Pkey as i32 {
-                            errmsg = format!(
-                                "Failed to find primary key index in dataset '{}'",
-                                d.ds_name
+                        if !found {
+                            let mut errmsg = format!(
+                                "Failed to find index '{}' in dataset '{}'",
+                                d.name, d.ds_name
                             );
+                            if d.idx_type == IndexTypePb::Pkey as i32 {
+                                errmsg = format!(
+                                    "Failed to find primary key index in dataset '{}'",
+                                    d.ds_name
+                                );
+                            }
+                            res = Err(SqlExecError::ExecutionError(errmsg));
+                            break 'outer;
                         }
-                        res = Err(SqlExecError::ExecutionError(errmsg));
-                        break 'outer;
                     }
                     _ => {}
                 } // Match DdlOpPb
             }
-            _ => {}
+            _ => {
+                // For ALTER ADD INDEX next insts populate the index
+                if res.is_ok() && !create_ds && create_idx_cnt > 0 {
+                    // Populate the index
+                    next_select_stmt_exec!(
+                        ctxt,
+                        plan,
+                        offset + next_offset,
+                        values,
+                        proj_cols,
+                        proj_rows
+                    );
+                }
+                break 'outer;
+            }
         }
-    }
-
+    } // 'outer
     if res.is_err() {
         ctxt.tran_abort();
         return res;
@@ -482,7 +518,7 @@ fn rel_update_exec(
     let upd_op = UpdateOpPb::try_from(relupd.upd_op).unwrap();
     for r in &relupd.ranges {
         debug!("Scan range: {:?}", r);
-        let res = index_scan(ctxt, relupd.tgt_index_root_id, values, &r.ranges, true);
+        let res = index_scan(ctxt, relupd.tgt_index_root_id, values, &r.ranges);
         if let Ok(res_opt) = res {
             match res_opt {
                 Some((ids, _)) => {
@@ -521,7 +557,8 @@ fn rel_update_exec(
                     let pk_json = jbparse::sqlvalues_to_summary_jsonvalue(start_keys);
                     return Err(SqlExecError::ExecutionError(format!(
                         "No matching pkey entry '{}' for relationship {}",
-                        pk_json.as_str().unwrap(), relupd.name
+                        pk_json.as_str().unwrap(),
+                        relupd.name
                     )));
                 }
             }
@@ -1037,7 +1074,7 @@ fn idataset_exec(
             // get ids, activate task
             sts = ctxt.dataset_enum_start(
                 ctxt.get_ltime(),
-                idataset.dataset_id,
+                idataset.ds_id,
                 &mut set_stream,
                 id_vec.as_mut_ptr(),
                 &mut num_ids,
@@ -1095,7 +1132,6 @@ fn index_scan(
     root_id: MtOidT,
     values: &Vec<RefCell<SqlValuePb>>,
     ranges: &Vec<RangePb>,
-    unique: bool,
 ) -> Result<Option<(Vec<u32>, indexsrch::ScanOutput)>, String> {
     let mut fetched_ids: Vec<u32> = vec![];
     // In predicate number of values if applicable, otherwise 1
@@ -1114,7 +1150,6 @@ fn index_scan(
             &start_cmps,
             &end_keys,
             &end_cmps,
-            unique,
         )
         .map_err(|e| format!("Failed to execute index scan: {}", e))?;
         if result.is_none() {
@@ -1158,8 +1193,6 @@ fn iindex_exec(
 ) -> Result<String, SqlExecError> {
     // Get offset for next instruction
     let next_offset = offset + 1;
-    let indext_type = IndexTypePb::try_from(iindex.idx_type).unwrap();
-    let unique = indext_type != IndexTypePb::Default;
 
     if iindex.op == IndexOpPb::InsertKey as i32 || iindex.op == IndexOpPb::DeleteKey as i32 {
         debug!("Executing index insert/upsert instruction: {:?}", iindex);
@@ -1177,9 +1210,14 @@ fn iindex_exec(
             sqlvals.push(res.unwrap());
         }
         let res = if iindex.op == IndexOpPb::InsertKey as i32 {
-            indexbt::bt_insert_key(ctxt, iindex.root_id, curr_id, &sqlvals, unique)
+            // FOR ALTER CREATE INDEX, root_val_idx is used to pass on the root value index
+            let mut root_id = iindex.root_id;
+            if root_id == 0 {
+                root_id = get_id_value!(values, iindex.root_val_idx as usize);
+            }
+            indexbt::bt_insert_key(ctxt, root_id, curr_id, &sqlvals)
         } else {
-            indexbt::bt_delete_key(ctxt, iindex.root_id, curr_id, &sqlvals, unique)
+            indexbt::bt_delete_key(ctxt, iindex.root_id, curr_id, &sqlvals)
         };
         if let Err(e) = res {
             return Err(SqlExecError::ExecutionError(format!(
@@ -1201,7 +1239,7 @@ fn iindex_exec(
             inst: Some(Inst::Index(iindex.clone())),
         };
 
-        let scan_res = index_scan(ctxt, iindex.root_id, values, &ranges, unique);
+        let scan_res = index_scan(ctxt, iindex.root_id, values, &ranges);
         if let Ok(res_opt) = scan_res {
             debug!("Index scan result {:?}", res_opt);
             match res_opt {

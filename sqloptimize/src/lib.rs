@@ -56,6 +56,7 @@ pub fn optimize_plan(
     if analyzers.len() == 1 {
         key_val_idx_map.insert("".to_string(), analyzers[0].idataset.key_val_idx);
     }
+    let stmt = sqlplan.sqlstmt().clone();
     for sqlplan_inst in &mut sqlplan.insts {
         let inst = sqlplan_inst.clone();
         match inst.inst.as_ref() {
@@ -67,7 +68,14 @@ pub fn optimize_plan(
                 // Push idataset or iindex if applicable, or both for drop dataset.
                 // There is nothing to do for rels, inverse rels should clear with GC.
                 // TBD - everything could be cleaned up by GC, just the dataset desc needs to clear.
-                iutils::push_idataset(ctxt, &analyzers, &d, d.key_val_idx, &mut optimized_insts);
+                iutils::push_idataset(
+                    ctxt,
+                    &stmt,
+                    &analyzers,
+                    &d,
+                    d.key_val_idx,
+                    &mut optimized_insts,
+                );
             }
             Some(sql_inst_pb::Inst::Dpath(d)) => {
                 // Analyzers are empty for statements like 'select 1'

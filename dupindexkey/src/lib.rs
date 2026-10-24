@@ -15,9 +15,7 @@
 use indexcapn::indexkey_capnp::{dup_index_key, index_page, key_component};
 use indexkey;
 use sqlexet::MtOidT;
-
 use sqlinsts::sqlinsts::SqlValuePb;
-use std::cell::RefCell;
 
 use tracing::debug;
 
@@ -59,12 +57,14 @@ pub fn get_index_key_entries<'a>(
     page_reader: &'a index_page::Reader,
 ) -> Result<capnp::struct_list::Reader<'a, dup_index_key::Owned>, String> {
     match page_reader.which().unwrap() {
-        index_page::Which::UniqKeyEntries(_) => {
-            return Err("Unique key entries".to_string());
-        }
         index_page::Which::DupKeyEntries(entries) => {
             let reader = entries.unwrap();
             return Ok(reader);
+        }
+        index_page::Which::UniqKeyEntries(_)
+        | index_page::Which::NodeKeyEntries(_)
+        | index_page::Which::SlistEntries(_) => {
+            return Err("Unique or slist or node key entries".to_string());
         }
     }
 }

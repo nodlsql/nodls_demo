@@ -13,14 +13,15 @@
 // limitations under the License.
 
 use indexcapn::indexkey_capnp::index_page;
+use indexkey::IndexKeyType;
 use indexsrch::SearchRes;
 use sqlinsts::sqlinsts::{sql_value_pb::Data, SqlValuePb};
 
 macro_rules! get_index_page_reader {
     ($serialized_page:ident) => {
         // Deserialize the existing index_page
-        if let Ok(reader) = ::capnp::serialize::read_message(
-            &mut std::io::Cursor::new($serialized_page),
+        if let Ok(reader) = ::capnp::serialize::read_message_from_flat_slice_no_alloc(
+            &mut $serialized_page.as_ref(),
             ::capnp::message::ReaderOptions::new(),
         ) {
             reader
@@ -33,7 +34,7 @@ macro_rules! get_index_page_reader {
 #[test]
 pub fn test_insert_key() {
     // Create a new index_page message
-    let mut serialized_page = indexkey::create_page(false);
+    let mut serialized_page = indexkey::create_page(IndexKeyType::Duplicate);
     let test_data = [
         // Composite key, id value, expected insert success result
         (("val1", 123), 111, true),
@@ -57,7 +58,6 @@ pub fn test_insert_key() {
             *id as u32, // id value to insert
             &ins_key,
             &mut serialized_page,
-            false,
         );
         println!(
             "Insert key result for key ({}, {}): {:?}",
@@ -119,9 +119,9 @@ pub fn test_insert_key() {
 }
 
 #[test]
-fn test_delete_key() {
+fn test_delete_duplicate_key() {
     // Create a new index_page message
-    let mut serialized_page = indexkey::create_page(false);
+    let mut serialized_page = indexkey::create_page(IndexKeyType::Duplicate);
     let test_data = [
         // Composite key, id value, expected fetch success result after deletion
         (("val1", 123), 111, true),
@@ -146,7 +146,6 @@ fn test_delete_key() {
             *id as u32, // id value to insert
             &ins_key,
             &mut serialized_page,
-            false,
         );
         assert!(res.is_ok(), "Failed to insert key: {:?}", res.err());
         let updated_page = res.unwrap();
@@ -169,7 +168,7 @@ fn test_delete_key() {
     ];
 
     // Call the function to delete the key entry
-    let delete_res = indexbt::delete_key(114, &del_key, &mut serialized_page, false);
+    let delete_res = indexbt::delete_key(114, &del_key, &mut serialized_page);
     assert!(
         delete_res.is_ok(),
         "Failed to delete key: {:?}",

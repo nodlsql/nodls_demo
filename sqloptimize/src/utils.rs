@@ -114,9 +114,11 @@ pub fn get_index_candidates_for_dataset(dataset_desc: &DatasetDesc) -> Vec<IInde
             idx_type: index_type,
             op: IndexOpPb::Scan as i32,
             ds_name: dataset_desc.name.clone(),
+            ds_id: 0, // Used for ALTER CREATE INDEX
             name: index_name,
-            root_id: index_key_num,
             key_val_idx: -1, // filled by optimizer in optimize pass
+            root_id: idx_desc._id,
+            root_val_idx: -1, // Used for ALTER CREATE INDEX
             seg_strs: index_seg_strs,
             seg_vecs: index_seg_vecs,
             range: None,
@@ -174,7 +176,7 @@ pub fn build_ds_desc_analyzer(
     Ok(Some(DatasetAnalyzer {
         idataset: IDatasetPb {
             name: ds_name.clone(),
-            dataset_id: tgt_ds_id,
+            ds_id: tgt_ds_id,
             key_val_idx: dataset_key_val_idx,
         },
         dataset_desc: dataset_desc,
@@ -417,9 +419,11 @@ pub fn get_pkey_index_for_dataset(
                 idx_type: index_type,
                 op: IndexOpPb::Scan as i32,
                 ds_name: ds_name.clone(),
+                ds_id: 0, // Used for ALTER CREATE INDEX
                 name: index_name,
-                root_id: index_id,
                 key_val_idx: -1, // filled by optimizer in optimize pass
+                root_id: index_id,
+                root_val_idx: -1, // Used for ALTER CREATE INDEX
                 seg_strs: index_seg_strs,
                 seg_vecs: index_seg_vecs,
                 range: None,

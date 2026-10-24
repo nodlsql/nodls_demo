@@ -15,7 +15,6 @@
 use indexcapn::indexkey_capnp::{dup_index_key, index_page, key_component, uniq_index_key};
 use rust_decimal::Decimal;
 use sqlinsts::sqlinsts::{sql_value_pb::Data, CompOperatorPb, SqlValuePb};
-use std::cell::RefCell;
 use std::cmp::Ordering;
 
 use tracing::debug;
@@ -32,19 +31,19 @@ pub fn index_scan(
     start_comp: &Vec<CompOperatorPb>,
     end_key: &Vec<SqlValuePb>,
     end_comp: &Vec<CompOperatorPb>,
-    uniq: bool,
 ) -> Result<Option<(Vec<u32>, ScanOutput)>, String> {
-    // TBD - handle errors
     let reader = indexkey::get_index_page_reader!(serialized_page);
     let reader = reader
         .get_root::<index_page::Reader>()
         .map_err(|e| e.to_string())?;
-    if uniq {
+    if reader.has_uniq_key_entries() {
         let page_reader = indexkey::get_index_key_entries(&reader).map_err(|e| e.to_string())?;
         index_scan_with_reader(&page_reader, start_key, start_comp, end_key, end_comp)
-    } else {
+    } else if reader.has_dup_key_entries() {
         let page_reader = dupindexkey::get_index_key_entries(&reader).map_err(|e| e.to_string())?;
         index_scan_with_reader(&page_reader, start_key, start_comp, end_key, end_comp)
+    } else {
+        return Err("Unknown entry type".to_string());
     }
 }
 
@@ -157,6 +156,23 @@ fn index_scan_with_reader<T: IndexKeyListReader>(
     Ok(Some((result_oids, scan_state)))
 }
 
+pub fn compare_id_key(target: &SqlValuePb, id_value: u32) -> Ordering {
+    match target.data.as_ref() {
+        Some(Data::OidValue(v)) => {
+            if *v < id_value {
+                return Ordering::Less;
+            } else if *v > id_value {
+                return Ordering::Greater;
+            }
+        }
+        _ => {
+            // Unsupported type for comparison
+            return Ordering::Less;
+        }
+    }
+    Ordering::Equal
+}
+
 pub fn compare_keys(
     values: &Vec<SqlValuePb>,
     components: &capnp::struct_list::Reader<key_component::Owned>,
@@ -175,8 +191,7 @@ pub fn compare_keys(
         let component = components.get(j as u32);
         debug!(
             "Comparing key component {:?} with value {:?}",
-            component,
-            val
+            component, val
         );
         match val.data.as_ref() {
             // None has precedence over explicit null value '{a: null}'
@@ -395,6 +410,24 @@ impl<'a> IndexKeyListReader for capnp::struct_list::Reader<'_, dup_index_key::Ow
     }
 }
 
+impl<'a> IndexKeyListReader for capnp::primitive_list::Reader<'_, u32> {
+    fn len(&self) -> u32 {
+        self.len()
+    }
+
+    fn get_id_values_at(&self, index: u32) -> Vec<u32> {
+        vec![self.get(index)]
+    }
+    fn get_cmpts_at(
+        &self,
+        _index: u32,
+    ) -> Result<capnp::struct_list::Reader<'_, key_component::Owned>, capnp::Error> {
+        Err(capnp::Error::failed(
+            "Primitive list has no components".to_string(),
+        ))
+    }
+}
+
 pub fn index_binary_search<T: IndexKeyListReader>(
     key_list_reader: &T,
     target: &Vec<SqlValuePb>,
@@ -404,9 +437,15 @@ pub fn index_binary_search<T: IndexKeyListReader>(
 
     while left < right {
         let mid = left + (right - left) / 2;
-        let components = key_list_reader.get_cmpts_at(mid as u32).unwrap();
-        let cmp_result = compare_keys(target, &components);
-
+        let cmp_result;
+        // if IndexKeyListReader is of type primitive list, compare using id values instead of components
+        if key_list_reader.get_cmpts_at(0).is_err() {
+            let id_values = key_list_reader.get_id_values_at(mid as u32);
+            cmp_result = compare_id_key(&target[0], id_values[0]);
+        } else {
+            let components = key_list_reader.get_cmpts_at(mid as u32).unwrap();
+            cmp_result = compare_keys(target, &components);
+        }
         match cmp_result {
             Ordering::Less => right = mid,
             Ordering::Greater => left = mid + 1,

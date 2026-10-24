@@ -16,16 +16,21 @@ use indexcapn::indexkey_capnp::{
     dup_id_union, dup_index_key, index_page, key_component, uniq_index_key,
 };
 use sqlexet::MtOidT;
-
 use sqlinsts::sqlinsts::{sql_value_pb::Data, DecimalValuePb, SqlValuePb};
-use std::cell::RefCell;
+
+pub enum IndexKeyType {
+    Unique,
+    Duplicate,
+    Node,
+    Slist,
+}
 
 #[macro_export]
 macro_rules! get_index_page_reader {
-    ($serialized_page:ident) => {
+    ($serialized_page:expr) => {
         // Deserialize the existing index_page
-        if let Ok(reader) = ::capnp::serialize::read_message(
-            &mut std::io::Cursor::new($serialized_page),
+        if let Ok(reader) = ::capnp::serialize::read_message_from_flat_slice_no_alloc(
+            &mut $serialized_page.as_ref(),
             ::capnp::message::ReaderOptions::new(),
         ) {
             reader
@@ -35,17 +40,26 @@ macro_rules! get_index_page_reader {
     };
 }
 
-pub fn create_page(unique: bool) -> Vec<u8> {
+pub fn create_page(key_type: IndexKeyType) -> Vec<u8> {
     // Create a new index_page Leaf message
     let mut serialized_page = Vec::new();
     let mut new_page_message = ::capnp::message::Builder::new_default();
     new_page_message.init_root::<index_page::Builder>();
     // init leaf page with empty entries list
     let page_builder = new_page_message.get_root::<index_page::Builder>().unwrap();
-    if unique {
-        page_builder.init_uniq_key_entries(0);
-    } else {
-        page_builder.init_dup_key_entries(0);
+    match key_type {
+        IndexKeyType::Unique => {
+            page_builder.init_uniq_key_entries(0);
+        }
+        IndexKeyType::Duplicate => {
+            page_builder.init_dup_key_entries(0);
+        }
+        IndexKeyType::Node => {
+            page_builder.init_node_key_entries(0);
+        }
+        IndexKeyType::Slist => {
+            page_builder.init_slist_entries(0);
+        }
     }
     ::capnp::serialize::write_message(&mut serialized_page, &new_page_message)
         .expect("create root failed");
@@ -268,9 +282,12 @@ pub fn get_index_key_entries<'a>(
     page_reader: &'a index_page::Reader,
 ) -> Result<capnp::struct_list::Reader<'a, uniq_index_key::Owned>, String> {
     match page_reader.which().map_err(|e| e.to_string())? {
-        index_page::Which::UniqKeyEntries(entries) => {
+        index_page::Which::UniqKeyEntries(entries) | index_page::Which::NodeKeyEntries(entries) => {
             let reader = entries.unwrap();
             return Ok(reader);
+        }
+        index_page::Which::SlistEntries(_) => {
+            return Err("Slist entries ".to_string());
         }
         index_page::Which::DupKeyEntries(_) => {
             return Err("Duplicate key entries".to_string());

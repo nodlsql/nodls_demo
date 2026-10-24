@@ -38,7 +38,6 @@ pub enum IdSpc {
     RelPart,
 }
 
-#[repr(C)]
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub enum UpdCounter {
     Insert(i32),
@@ -100,8 +99,8 @@ pub const MTS_ENDOFSTREAM: i32 = 0x08468078;
 pub const MTS_CLASSNOTFOUND: i32 = 0x84680fa;
 pub const MTS_OBJNOTFOUND: i32 = 0x8468442;
 
- // nodls pseudo-dataset 0x1002
- pub static META_DATASET_ID: MtOidT = 4098;
+// nodls pseudo-dataset 0x1002
+pub static META_DATASET_ID: MtOidT = 4098;
 
 // Currently this includes nodls pseudo-dataset 0x1002
 pub const MIN_USER_DATASET_ID: u32 = 4098;
@@ -110,6 +109,7 @@ pub type MtSizeT = u32;
 pub type MtOidT = u32;
 pub type MtLTimeT = u32;
 pub type MtStsT = i32;
+pub type MtBool = bool;
 
 pub trait SqlExeTrait {
     fn new() -> Self;
@@ -120,14 +120,9 @@ pub trait SqlExeTrait {
     fn set_tranid(&mut self, tranid: MtOidT);
     fn get_tranid(&self) -> MtOidT;
 
-    fn increment_count(&mut self, cnt_type: UpdCounter);
-    fn clear_counts(&mut self);
-    // Pretty print count message if any or return empty string
-    fn print_count(&self) -> String;
-
     fn objid_make(&mut self, schema_type: MtSchemaType) -> MtOidT;
 
-    fn connect_database(&mut self, database: &str) -> MtStsT;
+    fn connect_database(&mut self, database: &str, init: MtBool) -> MtStsT;
     fn disconnect_database(&mut self);
     fn activate_task(&self);
     fn deactivate_task(&mut self);
@@ -229,4 +224,47 @@ pub trait SqlExeTrait {
         data_part: &Vec<u8>,
         data_size: MtSizeT,
     ) -> MtStsT;
+
+    fn get_max_item_size(&self) -> MtSizeT;
+
+    fn get_counts(&mut self) -> &mut Vec<UpdCounter>;
+
+    fn increment_count(&mut self, count: UpdCounter) {
+        // Loop through the counters to find a matching type
+        // Create a counter if not already there
+        if self.get_counts().is_empty() {
+            let counts = self.get_counts();
+            counts.push(count);
+            return;
+        }
+        let mut found = false;
+        for counter in self.get_counts() {
+            if std::mem::discriminant(counter) == std::mem::discriminant(&count) {
+                counter.inc(count.get());
+                found = true;
+                break;
+            }
+        }
+        if !found {
+            let counts = self.get_counts();
+            counts.push(count);
+        }
+    }
+
+    fn clear_counts(&mut self) {
+        let counts = self.get_counts();
+        counts.clear();
+    }
+
+    fn print_counts(&mut self) -> String {
+        if self.get_counts().is_empty() {
+            "".to_string()
+        } else {
+            self.get_counts()
+                .iter()
+                .map(|c| c.print())
+                .collect::<Vec<_>>()
+                .join("\n")
+        }
+    }
 }

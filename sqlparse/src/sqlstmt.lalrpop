@@ -10,9 +10,7 @@ use crate::ast::{
 use crate::SqlParseError;
 
 use crate::lexer;
-//use crate::lexer::{Lexer, Tok, Location, LexicalError};
 use crate::lexer::Tok;
-use lalrpop_util::ParseError;
 
 // Parser expects tokens of shape: (usize, Tok, usize)
 // Example of calling the generated parser:
@@ -737,7 +735,7 @@ ConstValueExpr: ConstValue = {
 }
 
 ParseErrorExpr: SqlParseError = {
-    <l:"lexerror"> => {
+    <_l:"lexerror"> => {
         SqlParseError::InvalidToken {
             location: 0,
         }

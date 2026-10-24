@@ -287,6 +287,7 @@ pub fn test_compute_index_range_for_index() {
         idx_type: IndexTypePb::Pkey.into(),
         op: IndexOpPb::Scan as i32,
         ds_name: "test_dataset".to_string(),
+        ds_id: 0,
         name: "test_index".to_string(),
         seg_strs: vec!["a".to_string(), "b".to_string()],
         seg_vecs: vec![
@@ -298,6 +299,7 @@ pub fn test_compute_index_range_for_index() {
             },
         ],
         root_id: 0,
+        root_val_idx: -1, // Used for ALTER CREATE INDEX
         key_val_idx: 0,
         range: None,
     };
@@ -310,6 +312,7 @@ pub fn test_compute_index_range_for_index() {
         idx_type: IndexTypePb::Pkey.into(),
         op: IndexOpPb::Scan as i32,
         ds_name: "test_dataset".to_string(),
+        ds_id: 0,
         name: "test_index".to_string(),
         seg_strs: vec!["b".to_string(), "a".to_string()],
         seg_vecs: vec![
@@ -321,6 +324,7 @@ pub fn test_compute_index_range_for_index() {
             },
         ],
         root_id: 0,
+        root_val_idx: -1, // Used for ALTER CREATE INDEX
         key_val_idx: 0,
         range: None,
     };
@@ -338,6 +342,7 @@ pub fn test_compute_index_range_for_index() {
     let iindex = IIndexPb {
         idx_type: IndexTypePb::Pkey.into(),
         op: IndexOpPb::Scan as i32,
+        ds_id: 0,
         ds_name: "test_dataset".to_string(),
         name: "test_index".to_string(),
         seg_strs: vec!["b".to_string(), "c".to_string()],
@@ -350,6 +355,7 @@ pub fn test_compute_index_range_for_index() {
             },
         ],
         root_id: 0,
+        root_val_idx: -1, // Used for ALTER CREATE INDEX
         key_val_idx: 0,
         range: None,
     };
@@ -513,12 +519,14 @@ fn test_get_proj_rels_for_proj() {
     let iindex = IIndexPb {
         idx_type: IndexTypePb::Pkey.into(),
         ds_name: "test_dataset".to_string(),
+        ds_id: 0,
         name: "test_index".to_string(),
         seg_strs: vec!["a".to_string()],
         seg_vecs: vec![IndexSegPb {
             seg_vec: vec!["a".to_string()],
         }],
         root_id: 0,
+        root_val_idx: -1, // Used for ALTER CREATE INDEX
         key_val_idx: 0,
         range: None,
         op: IndexOpPb::Scan as i32,

@@ -13,8 +13,9 @@
 // limitations under the License.
 
 use sqlinsts::sqlinsts::{
-    sql_inst_pb, sql_value_pb, CompOperatorPb, CompositeRangePb, DdlOpPb, DecimalValuePb, IDdlPb,
-    IndexTypePb, RangePb, RelUpdPb, SqlInstPb, SqlPlanPb, SqlValuePb, UpdateOpPb, ValRelsUpdPb,
+    sql_inst_pb, sql_value_pb, CompOperatorPb, CompositeRangePb, DdlOpPb, DecimalValuePb,
+    IDatasetPb, IDdlPb, IIndexPb, IndexOpPb, IndexSegPb, IndexTypePb, RangePb, RelUpdPb, SqlInstPb,
+    SqlPlanPb, SqlValuePb, UpdateOpPb, ValRelsUpdPb,
 };
 use sqlparse::ast;
 use thiserror::Error;
@@ -57,6 +58,7 @@ fn get_default_ddl_pb(ds_name: &str) -> IDdlPb {
         rs_tgt_name: "".to_string(),
         rs_tgt_id: 0,
         idx_type: IndexTypePb::Default.into(),
+        root_val_idx: 0,
         seg_strs: vec![],
     }
 }
@@ -134,10 +136,28 @@ pub fn ddl_update_indexes(
     sqlplan: &mut SqlPlanPb,
     ds_name: &str,
     actions: &Vec<ast::AlterAction>,
+    is_dataset_create: bool,
 ) -> Result<(), SqlTranslateError> {
+    let mut idataset_key_val_idx = 0;
+    // Set apart populate index insts to be appended after all ddl update insts
+    let mut post_ddl_upd_insts = vec![];
+    let mut has_dataset_inst = false;
     for action in actions {
         match action {
             ast::AlterAction::AddIdx(i) => {
+                if !is_dataset_create && !has_dataset_inst {
+                    idataset_key_val_idx = add_value(sqlplan, false, None);
+                    let inst = IDatasetPb {
+                        key_val_idx: idataset_key_val_idx,
+                        name: ds_name.to_string(),
+                        ds_id: 0, // set by the optimizer
+                    };
+                    // 1) Add idataset loop to populate the indexes
+                    post_ddl_upd_insts.push(SqlInstPb {
+                        inst: Some(sql_inst_pb::Inst::Dataset(inst)),
+                    });
+                    has_dataset_inst = true;
+                }
                 let iname = if i.name.is_empty() {
                     // same as ds name for pkey
                     ds_name
@@ -154,17 +174,47 @@ pub fn ddl_update_indexes(
                     _ => IndexTypePb::Default as i32,
                 };
                 debug!("Primary key for dataset '{:?}': {:?}", ds_name, seg_paths);
+                // For alter stmt we need a key val for root id
+                let root_val_idx = add_value(sqlplan, false, None);
                 let index_seg_strs = seg_paths.clone();
                 let inst = IDdlPb {
                     op: DdlOpPb::CreateIdx.into(),
                     idx_type: idx_type,
-                    name: iname.to_string(), // TBD - pkey only for now
-                    seg_strs: index_seg_strs,
+                    name: iname.to_string(),
+                    root_val_idx: root_val_idx,
+                    seg_strs: index_seg_strs.clone(),
                     ..get_default_ddl_pb(ds_name)
                 };
                 let iinst = SqlInstPb {
                     inst: Some(sql_inst_pb::Inst::DdlUpdate(inst)),
                 };
+                // For alter stmt index update inst to populate the index
+                if !is_dataset_create {
+                    let index_seg_vecs = index_seg_strs
+                        .iter()
+                        .map(|p| IndexSegPb {
+                            seg_vec: p.split('.').map(|s| s.to_string()).collect(),
+                        })
+                        .collect::<Vec<IndexSegPb>>();
+                    let iidx_upd = IIndexPb {
+                        idx_type: idx_type,
+                        op: IndexOpPb::InsertKey as i32,
+                        name: iname.to_string(),
+                        ds_name: ds_name.to_string(),
+                        ds_id: 0, // set by optimizer
+                        seg_strs: index_seg_strs,
+                        seg_vecs: index_seg_vecs,
+                        key_val_idx: idataset_key_val_idx,
+                        root_val_idx: root_val_idx,
+                        root_id: 0, // unused for ALTER CREATE INDEX stmt
+                        range: None,
+                    };
+                    // 2) Add index insert key below dataset loop
+                    post_ddl_upd_insts.push(SqlInstPb {
+                        inst: Some(sql_inst_pb::Inst::Index(iidx_upd)),
+                    });
+                }
+                // 3) Push the DDL update instruction at head of 1) and 2)
                 sqlplan.insts.push(iinst);
             }
             ast::AlterAction::DropIdx(idx_name) => {
@@ -190,6 +240,9 @@ pub fn ddl_update_indexes(
                 // Ignore other actions
             }
         }
+    }
+    if has_dataset_inst {
+        sqlplan.insts.extend(post_ddl_upd_insts);
     }
     Ok(())
 }
@@ -411,20 +464,23 @@ fn fmt_inst(inst: &SqlInstPb) -> String {
         }
         Some(sql_inst_pb::Inst::DdlUpdate(d)) => {
             format!(
-                "IDdlUpdate op={} name={} ds_name={} type={}",
-                d.op, d.name, d.ds_name, d.idx_type
+                "IDdlUpdate op={} name={} ds_name={} ds_id={} idx_type={} root_val_idx={} seg_strs={:?}",
+                d.op, d.name, d.ds_name, d.ds_id, d.idx_type, d.root_val_idx, d.seg_strs,
             )
         }
         Some(sql_inst_pb::Inst::Dataset(c)) => {
             format!(
-                "IDataset name={} key_val_idx={} dataset_id={}",
-                c.name, c.key_val_idx, c.dataset_id
+                "IDataset name={} key_val_idx={} ds_id={}",
+                c.name, c.key_val_idx, c.ds_id
             )
         }
         Some(sql_inst_pb::Inst::Dpath(a)) => {
-            let mut rels= "".to_string();
+            let mut rels = "".to_string();
             for r in &a.rel_descs {
-                rels = format!("{}{{name={} id={} pk_segs={:?}}},", rels, r.name, r.id, r.pk_segs);
+                rels = format!(
+                    "{}{{name={} id={} pk_segs={:?}}},",
+                    rels, r.name, r.id, r.pk_segs
+                );
             }
             format!(
                 "IDatapath pathstr=\"{}\" pathsegs={:?} jsonpath={:?} parent_path={:?} ds_name={} alias={} key_val_idx={} val_idx={} phase={} rels={}",
@@ -465,8 +521,8 @@ fn fmt_inst(inst: &SqlInstPb) -> String {
                 rg_str = fmt_range(r);
             }
             format!(
-                "IIndex type={} op={} name={} segments={} root_id=0x{:x} key_val_idx={} ranges={}",
-                i.idx_type, i.op, i.name, segments, i.root_id, i.key_val_idx, rg_str
+                "IIndex type={} op={} name={} segments={} root_id={} root_val_idx={} key_val_idx={} ranges={}",
+                i.idx_type, i.op, i.name, segments, i.root_id, i.root_val_idx, i.key_val_idx, rg_str
             )
         }
         Some(sql_inst_pb::Inst::Insert(i)) => {
@@ -490,7 +546,10 @@ fn fmt_inst(inst: &SqlInstPb) -> String {
         Some(sql_inst_pb::Inst::Update(u)) => {
             let mut pathupds_str = "".to_string();
             for pu in &u.pathupds {
-                let pu_str_part = format!("{{upd_op={:?} val_idx={} pathsegs={:?}}},", pu.upd_op, pu.val_idx, pu.pathsegs);
+                let pu_str_part = format!(
+                    "{{upd_op={:?} val_idx={} pathsegs={:?}}},",
+                    pu.upd_op, pu.val_idx, pu.pathsegs
+                );
                 pathupds_str = format!("{}{}", pathupds_str, pu_str_part);
             }
             let relupds_str = fmt_relupd(&u.relupds);
